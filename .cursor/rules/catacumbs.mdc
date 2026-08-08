@@ -1,0 +1,88 @@
+---
+description: Devcontainer environment constraints (You are in the catacumbs)
+alwaysApply: true
+---
+
+# catacumbs
+
+This project runs inside a **devcontainer** called `The Catacumbs`. Assume all agent work happens in that sandbox unless the user explicitly says otherwise.
+
+## Root Access
+
+- You do **not** have root access.
+    - You **cannot** install packages.
+    - You should **not** change system files.
+
+## Docker
+
+The devcontainer does **not** have access to Docker (no `docker` CLI, no Docker socket, no `docker compose`).
+
+- Do **not** attempt to install Docker, mount the Docker socket, or work around this limitation.
+- If a task requires Docker (building images, running containers, `docker compose up`, etc.), **stop immediately** and tell the user they must run Docker **on the host**, outside the devcontainer.
+- Provide the exact host-side commands the user should run, but do not try to execute them from inside the container.
+
+## Host services and networking
+
+Services running on the host machine are **not** reachable at `localhost` or `127.0.0.1` from inside the devcontainer.
+
+Use `host.docker.internal` instead:
+
+```bash
+# ❌ Wrong — points to the container itself
+curl http://localhost:8080
+
+# ✅ Correct — reaches a service on the host
+curl http://host.docker.internal:8080
+```
+
+This applies to any host-exposed HTTP/HTTPS endpoint (APIs, databases with HTTP interfaces, etc.).
+
+## Workspace layout
+
+The devcontainer workspace is **`/repos`**, which bind-mounts only the host `repos/` directory — not the full catacumbs repo root.
+
+| Host path | Container path | Notes |
+|-----------|----------------|-------|
+| `repos/` | `/repos` | Workspace folder; module code lives here |
+| `.cursor/` | `/home/agent/.cursor` | Cursor config (rules, skills) |
+| `.agents/` | `/home/agent/.agents` | Agent skills |
+| `.devcontainer/home/.ssh/` | `/home/agent/.ssh` | SSH keys for git |
+
+Paths at the repo root such as `docs/`, `README.md`, and `.devcontainer/` are **not** in the workspace. Do not assume they are readable or writable from `/repos`.
+
+## Sandbox runtime (gVisor / runsc)
+
+The container runs with `--runtime=runsc` (gVisor), a syscall-sandboxed runtime — stricter than a normal Docker container.
+
+- Kernel-level or privileged operations may fail unexpectedly.
+- Do not assume behavior that depends on full host-kernel compatibility (certain mounts, `iptables`, nested virtualization, etc.).
+- If something works on the host but fails inside the container with obscure syscall or permission errors, gVisor restrictions are a likely cause — say so and ask the user to run it on the host.
+
+## Resource limits
+
+The sandbox is capped at **6 GB RAM** and **4 CPUs**. Avoid memory-heavy parallel jobs (large matrix builds, multiple Playwright suites at once) without warning the user.
+
+## User and system packages
+
+- Runs as non-root user **`agent`** (uid 1000).
+- System packages are baked into the image at build time; do not run `apt install` expecting changes to persist — rebuild the devcontainer instead.
+- Pre-installed tooling: PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Composer, Node (nvm, v22), Python 3.11 + `uv`, `gh` CLI, Playwright + Chromium, `postgres-client` (client only).
+
+When a module needs a specific PHP version, invoke it explicitly (e.g. `php7.4`) rather than relying on the default.
+
+## Databases
+
+Only the **PostgreSQL client** is installed — there is no database server inside the container. MySQL/MariaDB servers are also unavailable locally. Database instances run on the **host** via Docker; connect using `host.docker.internal` and the port exposed by the host compose stack.
+
+## SSH and git
+
+Git SSH auth uses the bind-mounted key at `/home/agent/.ssh`. If git over SSH fails, the key may be missing or not loaded — do not generate new keys inside the container; fix the host-side `.devcontainer/home/.ssh/` mount.
+
+## Devenv removal
+
+The legacy **devenv** stack (`devenv/server`, `devenv/client`, `devenv/bridge`) is being **fully removed** from this project.
+
+- Do not add new dependencies on devenv, its bridge, or its host control API.
+- Do not suggest starting or troubleshooting devenv services.
+- When touching config, docs, or scripts that still reference devenv, migrate away from it rather than extending it.
+

@@ -1,0 +1,52 @@
+---
+description: Require Serena for codebase navigation and edits
+alwaysApply: true
+---
+
+# Use Serena for coding work
+
+Before any coding task in this repo:
+1. Call MCP `initial_instructions` once per session via `CallMcpTool`.
+2. Prefer Serena symbol tools over raw Grep/Read for PHP class/method navigation and edits.
+3. Skip Serena only for: pure questions with no file changes, git/PR-only work, docs/CI-only changes, or browser verification (use IronBee instead).
+
+Subagents spawned for coding must follow the same rules.
+
+## MCP server identifier (critical)
+
+`.cursor/mcp.json` registers the server as `serena`, but **`CallMcpTool` must use the runtime server id**:
+
+`project-0-1.2.6-serena`
+
+Using `server: "serena"` fails with `Tool serena-<tool> not found`.
+
+Example:
+
+```json
+{
+  "server": "project-0-1.2.6-serena",
+  "toolName": "find_symbol",
+  "arguments": {
+    "name_path_pattern": "UPSDotCom/install",
+    "relative_path": "upsdotcom/upsdotcom.php",
+    "include_body": true,
+    "max_matches": 1
+  }
+}
+```
+
+Tool schemas live under the MCP descriptors folder for `project-0-1.2.6-serena` (see Cursor MCP file system). There is no `tool_search` tool in this Cursor integration — read schemas from those JSON files or call tools directly.
+
+## When to use Serena vs built-in tools
+
+| Task | Tool |
+|------|------|
+| List symbols in a PHP file | `get_symbols_overview` |
+| Find class/method/function by name | `find_symbol` (use function name, not filename) |
+| Find callers | `find_referencing_symbols` |
+| Replace a whole method/class | `replace_symbol_body` |
+| Small in-method edit | `replace_content` |
+| Non-PHP files, configs, markdown, tickets | Built-in Read/Grep/Edit |
+| Text search across repo (discovery) | Grep, then Serena for symbol bodies |
+
+Serena line numbers are **0-based**. Class names in this module are often `UPSDotCom` (capital UPS), not `UpsDotCom`.

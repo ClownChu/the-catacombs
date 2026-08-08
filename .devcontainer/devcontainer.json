@@ -1,0 +1,66 @@
+{
+  "name": "Agent Sandbox I",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder}/repos,target=/repos,type=bind",
+  "workspaceFolder": "/repos",
+  "runArgs": [
+    "--runtime=runsc",
+    "--add-host=host.docker.internal:host-gateway",
+    "--memory=6g",
+    "--cpus=4.0",
+    "--cap-add=all"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anysphere.cursor-agent-worker",
+        "anysphere.cursor-always-local",
+        "anysphere.cursor-resolver",
+        "anysphere.cursor-socket",
+        "anysphere.cursor-team-kit-skills",
+        "dbaeumer.vscode-eslint",
+        "mechatroner.rainbow-csv",
+        "anysphere.remote-ssh",
+        "anysphere.remote-containers",
+        "devsense.phptools-vscode",
+        "DotJoshJohnson.xml",
+        "ms-edgedevtools.vscode-edge-devtools",
+        "ironbee-ai.ironbee-devtools-vscode"
+      ],
+      "settings": {
+        "cursor.chat.autoRun": false
+      }
+    }
+  },
+  "remoteEnv": {
+    "CATACUMBS": 1
+  },
+  "remoteUser": "agent",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "configureZshAsDefaultShell": true,
+      "username": "agent"
+    },
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "lts"
+    },
+    "ghcr.io/jsburckhardt/devcontainer-features/uv:1": {
+      "version": "latest"
+    },
+    "ghcr.io/rails/devcontainer/features/postgres-client:1.2.0": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "mounts": [
+    "source=${localWorkspaceFolder}/.devcontainer/home/.ssh,target=/home/agent/.ssh,type=bind",
+    "source=${localWorkspaceFolder}/skills-lock.json,target=/home/agent/.skills-lock.json,type=bind",
+    "source=${localWorkspaceFolder}/.agents,target=/home/agent/.agents,type=bind",
+    "source=${localWorkspaceFolder}/.cursor,target=/home/agent/.cursor,type=bind"
+  ],
+  "postCreateCommand": "npm install && npx playwright install chromium",
+  "postStartCommand": {
+    "git-config": "git config --global user.name \"\" && git config --global user.email \"\""
+  }
+}

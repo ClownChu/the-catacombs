@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "performance-engineer": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/performance-engineer/SKILL.md",
+      "computedHash": "bf844ba60df30fe294541fe22e90eed18b4341d3270dc8599f0c4bfcf5e40c58"
+    },
+    "performance-optimizer": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/performance-optimizer/SKILL.md",
+      "computedHash": "3f9cc4b078de918e25ed258ca17eb526dfd4f0392f00553ed0c85fdb187b1682"
+    }
+  }
+}
