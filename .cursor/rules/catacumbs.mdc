@@ -66,13 +66,13 @@ The sandbox is capped at **6 GB RAM** and **4 CPUs**. Avoid memory-heavy paralle
 
 - Runs as non-root user **`agent`** (uid 1000).
 - System packages are baked into the image at build time; do not run `apt install` expecting changes to persist — rebuild the devcontainer instead.
-- Pre-installed tooling: PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Composer, Node (nvm, v22), Python 3.11 + `uv`, `gh` CLI, Playwright + Chromium, `postgres-client` (client only).
+- Pre-installed tooling: PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Composer, Node (LTS), Python 3.11 + `uv` + `pipx`, `gh` CLI, Playwright + Chromium, and the PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) clients.
 
 When a module needs a specific PHP version, invoke it explicitly (e.g. `php7.4`) rather than relying on the default.
 
 ## Databases
 
-Only the **PostgreSQL client** is installed — there is no database server inside the container. MySQL/MariaDB servers are also unavailable locally. Database instances run on the **host** via Docker; connect using `host.docker.internal` and the port exposed by the host compose stack.
+Only database **clients** are installed — `psql`, `mysql` (MariaDB), and `sqlite3`. There is no PostgreSQL or MySQL/MariaDB **server** inside the container. Database instances run on the **host** via Docker; connect using `host.docker.internal` and the port exposed by the host compose stack.
 
 ## SSH and git
 

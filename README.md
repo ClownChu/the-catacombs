@@ -113,6 +113,8 @@ On first build the image is created from `.devcontainer/Dockerfile`. Bind mounts
 | `.devcontainer/home/.ssh/` | `/home/agent/.ssh` |
 | `skills-lock.json` | `/home/agent/.skills-lock.json` |
 
+After the container is created, `postCreateCommand` tightens SSH key permissions and loads the key into an agent, installs Playwright with Chromium, clears the git identity placeholders, and symlinks `.cursor/rules` into `/repos/.cursor/rules`.
+
 ## Inside the sandbox
 
 ### User and limits
@@ -125,10 +127,10 @@ On first build the image is created from `.devcontainer/Dockerfile`. Bind mounts
 
 | Category | Tools |
 |----------|-------|
-| Languages | PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Node (nvm, v22), Python 3.11 |
-| Package managers | Composer, npm, `uv` |
-| Automation | Playwright + Chromium |
-| CLI | `gh`, PostgreSQL client (`psql`) |
+| Languages | PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Node (devcontainer feature, LTS), Python 3.11 |
+| Package managers | Composer, npm, `uv`, `pipx` |
+| Automation | Playwright + Chromium (installed at container create) |
+| CLI | `gh`, PostgreSQL client (`psql`), MariaDB/MySQL client (`mysql`), SQLite (`sqlite3`) |
 | MCP | Serena (PHP symbol navigation via `.cursor/mcp.json`) |
 
 Invoke a specific PHP version explicitly when needed (e.g. `php7.4`), rather than relying on the default.
@@ -151,7 +153,7 @@ Use `host.docker.internal` for any host-exposed HTTP/HTTPS endpoint, including d
 
 ### Databases
 
-No database server runs inside the sandbox. PostgreSQL and other databases run on the host via Docker; connect with `host.docker.internal` and the port your compose stack exposes. Only the PostgreSQL **client** is installed in the container.
+No database **server** runs inside the sandbox. PostgreSQL, MySQL/MariaDB, and other databases run on the host via Docker; connect with `host.docker.internal` and the port your compose stack exposes. **Clients** for PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) are pre-installed in the container.
 
 ## Agent tooling
 
@@ -196,7 +198,8 @@ The sandbox limits Docker and root access, but an agent still has **intentional 
 | **SSH keys** | The mounted private key can push to repos and `ssh` to remote hosts |
 | **Host services** | `host.docker.internal` reaches databases and APIs exposed on the host |
 | **Persistence** | Agents can modify rules, skills, and MCP config for future sessions |
-| **Capabilities** | `--cap-add=all` widens kernel escape surface (mitigated partly by gVisor) |
+
+The container runs with Docker's **default capability set** (no `--cap-add=all`) under gVisor.
 
 Full write-up and mitigations:
 

@@ -13,7 +13,7 @@ Threat model for **The Catacumbs**: a Cursor agent runs with shell access inside
 | [KV-03](#kv-03-host-network-via-hostdockerinternal) | Host network access via `host.docker.internal` | High | No |
 | [KV-04](#kv-04-agent-config-persistence) | Agent config persistence (rules, skills, MCP) | Medium | No |
 | [KV-05](#kv-05-symlink-traversal-under-repos) | Symlink traversal under `repos/` | Medium | No |
-| [KV-06](#kv-06-broad-linux-capabilities) | Broad Linux capabilities (`--cap-add=all`) | Medium | Yes (kernel/gVisor) |
+| [KV-06](#kv-06-broad-linux-capabilities) | Broad Linux capabilities (`--cap-add=all`) | Low (mitigated) | Yes (kernel/gVisor) |
 | [KV-07](#kv-07-unrestricted-outbound-network) | Unrestricted outbound network | Medium | No |
 | [KV-08](#kv-08-remote-repo-and-api-access) | Remote repo and API access (`git`, `gh`, `npm`) | Medium | No |
 | [KV-09](#kv-09-auto-run-agent-commands) | Auto-run agent commands (opt-in) | Low–Medium | No |
@@ -103,12 +103,14 @@ Workspaces live under `repos/`, but symlinks inside that tree are not confined. 
 
 ## KV-06: Broad Linux capabilities
 
-**Severity:** Medium  
+**Severity:** Low (mitigated)  
 **Container escape required:** Yes (kernel / gVisor boundary)
 
-`devcontainer.json` passes `--cap-add=all`, granting every Linux capability to the container process. gVisor (`runsc`) intercepts and filters many syscalls, which reduces practical exploitability compared to a standard `runc` container — but broad capabilities still enlarge the attack surface if a gVisor or kernel vulnerability is found.
+`--cap-add=all` has been **removed** from `devcontainer.json` `runArgs`. The container now runs with Docker's default capability set, so the agent no longer holds every Linux capability.
 
-**Impact:** Potential full host compromise in the worst case; not the most likely path given bind mounts and SSH already provide wide access.
+Residual risk is limited to the default capabilities, still filtered by gVisor (`runsc`) — a much smaller surface than before. Re-adding broad capabilities would restore the original exposure.
+
+**Impact:** Low today; a gVisor or kernel vulnerability reachable from default capabilities would be required, and bind mounts and SSH already provide wider access by simpler means.
 
 ---
 
@@ -128,7 +130,7 @@ There is no egress firewall. The agent can reach the public internet for package
 **Severity:** Medium  
 **Container escape required:** No
 
-Pre-installed tooling includes `git`, `gh`, `npm`, `npx`, `curl`, `wget`, and Playwright. Combined with network access and (often) SSH or `gh` auth, an agent can push code, open PRs, publish packages, or interact with third-party APIs using credentials available in the environment or mounted keys.
+Pre-installed tooling includes `git`, `gh`, `npm`, `npx`, `composer`, `pipx`, `uv`, `curl`, `wget`, the MariaDB/MySQL, PostgreSQL, and SQLite clients, and Playwright. Combined with network access and (often) SSH or `gh` auth, an agent can push code, open PRs, publish packages, or interact with third-party APIs using credentials available in the environment or mounted keys.
 
 **Impact:** Supply-chain attacks, unauthorized releases, social-engineering via PRs opened in the agent's name.
 
@@ -152,6 +154,7 @@ These controls are in place and working as designed:
 - **No Docker socket** — the agent cannot start or control host containers.
 - **Non-root user** (`agent`, uid 1000) — no direct host root inside the container namespace.
 - **gVisor (`runsc`)** — syscall sandboxing beyond a typical devcontainer.
+- **Default capabilities only** — no `--cap-add=all` in `runArgs` (see [KV-06](#kv-06-broad-linux-capabilities)).
 - **Resource limits** — 6 GB RAM, 4 CPUs (DoS containment, not secrecy).
 
 ---

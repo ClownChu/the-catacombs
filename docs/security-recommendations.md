@@ -12,7 +12,8 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 |----------|-----|-------|
 | **P0 — do first** | KV-02, KV-03 | Keys and host services |
 | **P1 — high value** | KV-01, KV-04, KV-05 | Mount scope and persistence |
-| **P2 — harden** | KV-06, KV-07, KV-08, KV-09 | Capabilities, egress, tooling, auto-run |
+| **P2 — harden** | KV-07, KV-08, KV-09 | Egress, tooling, auto-run |
+| **Mitigated** | KV-06 | Capabilities — `--cap-add=all` already removed |
 
 ---
 
@@ -114,9 +115,9 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 ### Recommendations
 
-1. **Remove `--cap-add=all`** from `devcontainer.json` `runArgs`. Test whether gVisor and your workload still function; default dropped capabilities are preferable.
+1. **Remove `--cap-add=all`** from `devcontainer.json` `runArgs` — **already done by default**; the current config ships with Docker's default capability set.
 
-2. **If specific caps are required**, add only those (e.g. none for typical dev work).
+2. **Do not re-add broad capabilities.** If a specific cap is required, add only that one (typical dev work needs none).
 
 3. **Keep gVisor enabled** (`--runtime=runsc`). Do not switch to `runc` for convenience without accepting a larger escape surface.
 
@@ -178,7 +179,7 @@ A practical “safer catacumbs” setup:
 - [ ] `.cursor/rules` mounted read-only
 - [ ] No symlinks escaping `repos/`
 - [ ] Host DBs and admin UIs not exposed on bridge-accessible ports
-- [ ] `--cap-add=all` removed from `runArgs`
+- [x] `--cap-add=all` removed from `runArgs` (already the default)
 - [ ] `cursor.chat.autoRun` left disabled (default) or only enabled for trusted sessions
 - [ ] Post-session `git diff` on `.cursor/`, `.agents/`, and `repos/`
 - [ ] Catacumbs runs on a dedicated dev machine or VM, not your daily driver with full keys
@@ -191,7 +192,7 @@ Tighter security reduces agent autonomy and convenience. The catacumbs design in
 
 | Profile | Mounts | Keys | `host.docker.internal` | Auto-run |
 |---------|--------|------|------------------------|----------|
-| **Dev (default)** | Full | Linked personal key | Enabled | true |
+| **Dev (default)** | Full | Linked personal key | Enabled | false |
 | **Team** | `repos/` + read-only rules | Per-repo deploy key | Enabled, firewalled | false |
 | **Paranoid** | Single project subfolder | None (HTTPS read-only) | Disabled | false |
 

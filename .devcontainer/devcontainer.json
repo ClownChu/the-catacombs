@@ -9,8 +9,7 @@
     "--runtime=runsc",
     "--add-host=host.docker.internal:host-gateway",
     "--memory=6g",
-    "--cpus=4.0",
-    "--cap-add=all"
+    "--cpus=4.0"
   ],
   "customizations": {
     "vscode": {
@@ -25,6 +24,7 @@
         "anysphere.remote-ssh",
         "anysphere.remote-containers",
         "devsense.phptools-vscode",
+        "aswinkumar863.smarty-template-support",
         "DotJoshJohnson.xml",
         "ms-edgedevtools.vscode-edge-devtools",
         "ironbee-ai.ironbee-devtools-vscode"
@@ -35,7 +35,7 @@
     }
   },
   "remoteEnv": {
-    "CATACUMBS": 1
+    "CATACUMBS": "1"
   },
   "remoteUser": "agent",
   "features": {
@@ -59,8 +59,10 @@
     "source=${localWorkspaceFolder}/.agents,target=/home/agent/.agents,type=bind",
     "source=${localWorkspaceFolder}/.cursor,target=/home/agent/.cursor,type=bind"
   ],
-  "postCreateCommand": "npm install && npx playwright install chromium",
-  "postStartCommand": {
-    "git-config": "git config --global user.name \"\" && git config --global user.email \"\""
+  "postCreateCommand": {
+    "ssh-permissions": "sudo chmod 600 /home/agent/.ssh/* 2>/dev/null || true && echo '\nif [ -f \"$HOME/.ssh/id_ed25519_github\" ] && ! ssh-add -l >/dev/null 2>&1; then\n  eval \"$(ssh-agent -s)\" >/dev/null\n  ssh-add \"$HOME/.ssh/id_ed25519_github\" 2>/dev/null || true\nfi' >> /home/agent/.zshrc",
+    "playwright-setup": "sudo npx playwright install-deps && npx playwright install chromium",
+    "git-config": "git config --global user.name \"\" && git config --global user.email \"\"",
+    "cursor-symlinks": "ln -sf /home/agent/.cursor/rules/* /repos/.cursor/rules"
   }
 }
