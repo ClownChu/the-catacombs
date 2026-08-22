@@ -66,7 +66,7 @@ The sandbox is capped at **6 GB RAM** and **4 CPUs**. Avoid memory-heavy paralle
 
 - Runs as non-root user **`agent`** (uid 1000).
 - System packages are baked into the image at build time; do not run `apt install` expecting changes to persist — rebuild the devcontainer instead.
-- Pre-installed tooling: PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Composer, Node (LTS), Python 3.11 + `uv` + `pipx`, `gh` CLI, Playwright + Chromium, and the PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) clients.
+- Pre-installed tooling: PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Composer, Node 22.12.0 (nvm) plus Node LTS (devcontainer feature), Python 3.11 + `uv` + `pipx`, `gh` CLI, Playwright (OS deps in the image, browsers at container create), and the PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) clients.
 
 When a module needs a specific PHP version, invoke it explicitly (e.g. `php7.4`) rather than relying on the default.
 

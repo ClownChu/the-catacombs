@@ -61,7 +61,7 @@
   ],
   "postCreateCommand": {
     "ssh-permissions": "sudo chmod 600 /home/agent/.ssh/* 2>/dev/null || true && echo '\nif [ -f \"$HOME/.ssh/id_ed25519_github\" ] && ! ssh-add -l >/dev/null 2>&1; then\n  eval \"$(ssh-agent -s)\" >/dev/null\n  ssh-add \"$HOME/.ssh/id_ed25519_github\" 2>/dev/null || true\nfi' >> /home/agent/.zshrc",
-    "playwright-setup": "sudo npx playwright install-deps && npx playwright install chromium",
+    "playwright-install": "npm install -g playwright && npx playwright install",
     "git-config": "git config --global user.name \"\" && git config --global user.email \"\"",
     "cursor-symlinks": "ln -sf /home/agent/.cursor/rules/* /repos/.cursor/rules"
   }

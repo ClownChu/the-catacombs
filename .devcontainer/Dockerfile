@@ -67,6 +67,31 @@ RUN pip install --no-cache-dir pipx \
 RUN mkdir -p /home/$USERNAME/.ssh && chmod 700 /home/$USERNAME/.ssh \
     && chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
 
+# Install nvm
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash \
+    && echo 'export NVM_DIR="$HOME/.nvm"' >> $HOME/.zshrc \
+    \
+    && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" # This loads nvm' >> $HOME/.zshrc \
+    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion' >> $HOME/.zshrc
+
+ENV NODE_VERSION="22.12.0"
+# Install node
+RUN source $HOME/.zshrc \
+    && nvm install $NODE_VERSION \
+    && nvm alias default $NODE_VERSION \
+    && nvm use default
+
+# Set node environment variables
+RUN echo 'export NODE_FOLDER="$NVM_DIR/v$NODE_VERSION"' >> $HOME/.zshrc \
+    && echo 'export NODE_PATH="$NODE_FOLDER/lib/node_modules"' >> $HOME/.zshrc \
+    && echo 'export PATH="$NODE_FOLDER/bin:$PATH"' >> $HOME/.zshrc
+
+RUN source $HOME/.zshrc \
+    && npm install -g playwright \
+    && npx playwright install-deps \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set default user
 USER $USERNAME
 

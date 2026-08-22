@@ -113,7 +113,7 @@ On first build the image is created from `.devcontainer/Dockerfile`. Bind mounts
 | `.devcontainer/home/.ssh/` | `/home/agent/.ssh` |
 | `skills-lock.json` | `/home/agent/.skills-lock.json` |
 
-After the container is created, `postCreateCommand` tightens SSH key permissions and loads the key into an agent, installs Playwright with Chromium, clears the git identity placeholders, and symlinks `.cursor/rules` into `/repos/.cursor/rules`.
+After the container is created, `postCreateCommand` tightens SSH key permissions and loads the key into an agent, installs Playwright browsers (`npm install -g playwright && npx playwright install`), clears the git identity placeholders, and symlinks `.cursor/rules` into `/repos/.cursor/rules`.
 
 ## Inside the sandbox
 
@@ -127,9 +127,9 @@ After the container is created, `postCreateCommand` tightens SSH key permissions
 
 | Category | Tools |
 |----------|-------|
-| Languages | PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Node (devcontainer feature, LTS), Python 3.11 |
+| Languages | PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Node 22.12.0 (nvm in the image) plus LTS (devcontainer feature), Python 3.11 |
 | Package managers | Composer, npm, `uv`, `pipx` |
-| Automation | Playwright + Chromium (installed at container create) |
+| Automation | Playwright (OS deps in the image; browsers installed at container create) |
 | CLI | `gh`, PostgreSQL client (`psql`), MariaDB/MySQL client (`mysql`), SQLite (`sqlite3`) |
 | MCP | Serena (PHP symbol navigation via `.cursor/mcp.json`) |
 
