@@ -1,0 +1,215 @@
+{
+  "match_order": [
+    "guard_policy",
+    "ssh_dir",
+    "secret_values",
+    "credential_access",
+    "destructive_fs",
+    "privilege_escalation",
+    "container_escape",
+    "git_destructive",
+    "network_egress",
+    "http_tools",
+    "subagent_spawn",
+    "file_write_outside_repos"
+  ],
+  "ask_unsupported_hooks": ["preToolUse", "beforeReadFile"],
+  "ask_unsupported_fallback": "deny",
+  "destructive_fs": {
+    "matcher": "shell_regex",
+    "intention": "run destructive filesystem command",
+    "shell_patterns": [
+      "\\brm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+|--force\\s+|--recursive\\s+|-[a-zA-Z]*r[a-zA-Z]*\\s+)",
+      "\\brm\\s+-[a-zA-Z]*r",
+      "\\bmkfs\\.",
+      "\\bdd\\s+if=",
+      "\\bshred\\b",
+      "\\btruncate\\s+-s\\s+0\\b",
+      ">\\s*/dev/sd",
+      "\\bformat\\s+[a-zA-Z]:"
+    ]
+  },
+  "privilege_escalation": {
+    "matcher": "shell_regex",
+    "intention": "escalate privileges",
+    "shell_patterns": [
+      "\\bsudo\\b",
+      "\\bsu\\s",
+      "\\bdoas\\b",
+      "\\bchmod\\s+.*\\+s",
+      "\\bchown\\s+root:",
+      "\\bpkexec\\b"
+    ]
+  },
+  "container_escape": {
+    "matcher": "shell_regex",
+    "intention": "run container runtime or escape sandbox",
+    "shell_patterns": [
+      "\\bdocker\\b",
+      "\\bpodman\\b",
+      "\\bnsenter\\b",
+      "\\bunshare\\b",
+      "\\bmount\\s+",
+      "\\bfusermount\\b",
+      "\\bchroot\\b"
+    ]
+  },
+  "git_destructive": {
+    "matcher": "shell_regex",
+    "intention": "run destructive git command",
+    "shell_patterns": [
+      "\\bgit\\s+push\\s+.*--force",
+      "\\bgit\\s+push\\s+-f\\b",
+      "\\bgit\\s+reset\\s+--hard",
+      "\\bgit\\s+clean\\s+-[a-zA-Z]*f",
+      "\\bgit\\s+branch\\s+-D\\b",
+      "\\bgit\\s+filter-branch\\b"
+    ]
+  },
+  "secret_values": {
+    "matcher": "secrets",
+    "intention": "read secret environment values",
+    "intention_overrides": {
+      "env_file": "read environment file",
+      "env_var": "read sensitive environment variable",
+      "env_dump": "dump full environment"
+    },
+    "env_file_paths": ["**/.env", "**/.env.*", "**/*.env"],
+    "env_file_path_exclude": ["**/.env.example", "**/.env.sample", "**/.env.template"],
+    "env_file_shell_patterns": [
+      "\\b(cat|head|tail|less|more|grep|awk|sed|php|python3?|node)\\b[^\\n|]*(?<![A-Za-z0-9_])\\.env(?:\\b|/|['\"]|$)"
+    ],
+    "env_var_name_keywords": [
+      "CONNECTION", "CONN", "CONNECT",
+      "KEY", "APIKEY", "API_KEY", "SECRET_KEY", "ACCESS_KEY", "PRIVATE_KEY",
+      "PASSWORD", "PASSWD", "PASS", "PW", "PWD",
+      "SECRET", "TOKEN", "CREDENTIAL", "CRED",
+      "AUTH", "AUTHORIZATION", "OAUTH",
+      "PRIVATE", "SALT", "SIGNING", "SIGNATURE",
+      "CERT", "CERTIFICATE",
+      "DSN", "DATABASE_URL", "JDBC",
+      "BEARER", "SESSION", "COOKIE",
+      "ENCRYPTION", "CIPHER", "MNEMONIC", "SEED", "WEBHOOK"
+    ],
+    "env_dump_shell_patterns": [
+      "(?<![.\\w])env\\b",
+      "\\bprintenv\\b",
+      "\\bexport\\s+-p\\b",
+      "\\bdeclare\\s+-[px]\\b",
+      "\\bcompgen\\s+-v\\b"
+    ],
+    "env_access_code_patterns": [
+      "process\\.env(\\.\\w+|\\[)",
+      "os\\.environ",
+      "os\\.getenv\\s*\\(",
+      "getenv\\s*\\(",
+      "\\$_ENV\\[",
+      "\\$_SERVER\\[",
+      "System\\.getenv\\s*\\(",
+      "Environment\\.GetEnvironmentVariable",
+      "Dotenv::",
+      "dotenv\\."
+    ],
+    "tools": ["Read", "Grep"]
+  },
+  "credential_access": {
+    "matcher": "path",
+    "intention": "access credential file",
+    "path_patterns": [
+      "**/.ssh/**",
+      "**/id_rsa",
+      "**/id_ed25519",
+      "**/id_ecdsa",
+      "**/*.pem",
+      "**/*.p12",
+      "**/.aws/credentials",
+      "**/.netrc"
+    ],
+    "path_exclude": ["**/.ssh/*.pub"],
+    "shell_patterns": [
+      "\\bcat\\s+.*\\.ssh/",
+      "\\bssh-add\\b",
+      "\\bgpg\\s+--export-secret"
+    ],
+    "tools": ["Read", "Grep"]
+  },
+  "ssh_dir": {
+    "matcher": "path",
+    "intention": "access SSH directory",
+    "path_patterns": ["**/.ssh/**"],
+    "read_allow_suffixes": [".pub"],
+    "shell_allow_pub_read": true,
+    "write_tools": ["Write", "StrReplace", "Delete", "EditNotebook"],
+    "read_tools": ["Read", "Grep"]
+  },
+  "network_egress": {
+    "matcher": "shell_regex",
+    "intention": "reach outbound network",
+    "shell_patterns": [
+      "\\bcurl\\b",
+      "\\bwget\\b",
+      "\\bssh\\b",
+      "\\bscp\\b",
+      "\\bsftp\\b",
+      "\\brsync\\b",
+      "\\bnc\\b",
+      "\\bncat\\b",
+      "\\btelnet\\b",
+      "\\bnpm\\s+(install|ci|add|update)\\b",
+      "\\byarn\\s+(add|install)\\b",
+      "\\bpnpm\\s+(add|install)\\b",
+      "\\bpip\\s+install\\b",
+      "\\bcomposer\\s+(require|install|update)\\b",
+      "\\bgh\\s+(api|repo\\s+clone)\\b",
+      "\\bgit\\s+clone\\s+https?://",
+      "\\bgit\\s+clone\\s+git@"
+    ]
+  },
+  "http_tools": {
+    "matcher": "tool_name",
+    "intention": "fetch remote content via HTTP tool",
+    "tools": ["WebFetch", "WebSearch"]
+  },
+  "subagent_spawn": {
+    "matcher": "tool_name",
+    "intention": "spawn subagent",
+    "tools": ["Task"]
+  },
+  "file_write_outside_repos": {
+    "matcher": "write_prefix",
+    "intention": "write outside workspace",
+    "write_path_exclude_prefix": "/repos/",
+    "write_path_allow_patterns": [
+      "**/.cursor/rules/**",
+      "**/.cursor/mcp.json",
+      "**/.cursor/settings.json",
+      "**/.cursor/agents/**",
+      "**/.cursor/plugins/**",
+      "**/.cursor/projects/**"
+    ],
+    "write_tools": ["Write", "StrReplace", "Delete"]
+  },
+  "guard_policy": {
+    "matcher": "path",
+    "intention": "access guard policy",
+    "intention_overrides": {
+      "policy": "read or modify guard policy"
+    },
+    "write_tools": ["Write", "StrReplace", "Delete", "EditNotebook"],
+    "read_tools": ["Read", "Grep"],
+    "path_patterns": [
+      "**/.cursor/hooks.json",
+      "**/.cursor/hooks/**",
+      "**/.cursor/catacumbs-security.json",
+      "**/.cursor/catacumbs-security/**",
+      "~/.cursor/hooks.json",
+      "~/.cursor/hooks/**",
+      "~/.cursor/catacumbs-security.json",
+      "~/.cursor/catacumbs-security/**",
+      "**/.devcontainer/home/.cursor/hooks.json",
+      "**/.devcontainer/home/.cursor/hooks/**",
+      "**/.devcontainer/home/.cursor/catacumbs-security.json",
+      "**/.devcontainer/home/.cursor/catacumbs-security/**"
+    ]
+  }
+}

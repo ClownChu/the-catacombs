@@ -125,17 +125,126 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 ---
 
+## Catacumbs security guard (IDE hooks)
+
+**Layer 1** enforcement ships with the repo. Canonical sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only onto `~/.cursor/` for hooks and security config. `hooks.json` resolves `catacumbs-hook.sh` from **`.cursor/hooks/`** (workspace-relative) first, then **`~/.cursor/hooks/`**; the entrypoint `exec`s `catacumbs_guard.py` with `guard` or `audit`. Missing scripts fail closed. The guard loads the active profile from `catacumbs-security.json`, level files from `catacumbs-security/profiles/`, and shared patterns from `catacumbs-security/categories.json`.
+
+| Hook | Purpose |
+|------|---------|
+| `beforeShellExecution` | Command patterns, `.env`, sensitive env vars |
+| `beforeMCPExecution` | MCP network tools |
+| `preToolUse` | WebFetch, WebSearch, Read/Grep on sensitive paths |
+| `beforeReadFile` | Direct file reads (path only — content never logged) |
+| `postToolUse` / `afterShellExecution` | Audit successful reads; warn on secret leakage |
+
+All pre-execution hooks use `failClosed: true`. Default profile: **medium**. On `low`/`medium`, most categories **ask** on shell; `guard_policy` (read+write), `container_escape`, and `file_write_outside_repos` **block + notify** at every level. Every `action: block` notifies the user with operation, target, and inferred intention.
+
+### Read-only overlay mounts (recommended)
+
+Guard config is shipped read-only via overlay mounts in `devcontainer.json` (after the writable `.cursor` bind):
+
+```json
+"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/hooks,target=/home/agent/.cursor/hooks,type=bind,readonly",
+"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/hooks.json,target=/home/agent/.cursor/hooks.json,type=bind,readonly",
+"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/catacumbs-security,target=/home/agent/.cursor/catacumbs-security,type=bind,readonly",
+"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/catacumbs-security.json,target=/home/agent/.cursor/catacumbs-security.json,type=bind,readonly"
+```
+
+Agents may still edit `.cursor/rules`, `.cursor/mcp.json`, and other writable paths under the general `.cursor` mount.
+
+### Tests
+
+Run from the **host** (agents cannot read the hooks directory):
+
+```bash
+python3 -m unittest discover -s .devcontainer/home/.cursor/hooks -p 'test_*.py' -v
+```
+
+Rebuild the devcontainer after mount changes.
+
+---
+
+## Kernel and container complements (optional — Layer 2/3)
+
+Hooks handle path-aware rules (`.env`, credential paths, ask/block UX). Kernel and host layers add syscall reduction and egress control — **complementary, not interchangeable**.
+
+| Layer | What it blocks | Status in catacumbs |
+|-------|----------------|---------------------|
+| **gVisor (`runsc`)** | Syscall surface reduction | **Enabled** in `devcontainer.json` `runArgs` |
+| **Docker seccomp profile** | Dangerous syscalls (`mount`, `ptrace`, `reboot`, …) | Documented optional follow-up |
+| **Host egress firewall** | Outbound TCP/UDP from container bridge | Documented optional follow-up |
+| **Capability dropping** | Privileged caps | Default Docker set (no `--cap-add=all`) |
+| **Read-only bind mounts** | Policy / hook directories | Recommended above |
+
+### What kernel layers cannot do here
+
+| Goal | Why it fails |
+|------|--------------|
+| Block reads of `**/.env` under `/repos/` | Bind-mounted workspace is owned by agent uid; no per-path LSM without root-owned overlay |
+| Block agent IDE Read tool | Kernel sees the Cursor process, not individual tool calls |
+| In-container `iptables` | Agent has no root / `CAP_NET_ADMIN`; gVisor may restrict anyway |
+
+### Optional seccomp profile (host-maintained)
+
+Add to `devcontainer.json` `runArgs` when you maintain a seccomp JSON on the host:
+
+```json
+"--security-opt", "seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-profile.json"
+```
+
+Example policy shape (trim to your threat model):
+
+```json
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X86_64"],
+  "syscalls": [
+    { "names": ["read", "write", "open", "close", "stat", "fstat", "mmap", "mprotect", "munmap", "brk", "rt_sigaction", "rt_sigprocmask", "ioctl", "access", "pipe", "select", "sched_yield", "mremap", "msync", "mincore", "madvise", "dup", "dup2", "pause", "nanosleep", "getpid", "socket", "connect", "accept", "sendto", "recvfrom", "clone", "fork", "vfork", "execve", "exit", "wait4", "kill", "uname", "fcntl", "flock", "fsync", "fdatasync", "truncate", "ftruncate", "getdents", "getcwd", "chdir", "fchdir", "rename", "mkdir", "rmdir", "creat", "link", "unlink", "readlink", "chmod", "fchmod", "chown", "fchown", "lchown", "umask", "gettimeofday", "getrlimit", "getrusage", "sysinfo", "times", "getuid", "getgid", "geteuid", "getegid", "getppid", "getpgrp", "setsid", "setpgid", "getgroups", "setgroups", "setuid", "setgid", "getresuid", "getresgid", "getpgid", "setreuid", "setregid", "gettid", "exit_group", "tkill", "futex", "set_tid_address", "set_robust_list", "nanosleep", "epoll_create", "epoll_ctl", "epoll_wait", "setitimer", "getitimer", "timer_create", "timer_settime", "timer_gettime", "timer_delete", "clock_gettime", "clock_getres", "clock_nanosleep", "prctl", "arch_prctl", "set_tid_address"], "action": "SCMP_ACT_ALLOW" }
+  ]
+}
+```
+
+v1 ships hooks only; seccomp is an optional host follow-up (rebuild devcontainer after adding the profile).
+
+### Optional host egress firewall (KV-07)
+
+Block container bridge egress except allowlisted destinations. Example with `nftables` on the host (adjust `br-*` to your Docker bridge):
+
+```bash
+# Inspect bridge subnet
+docker network inspect bridge | jq '.[0].IPAM.Config'
+
+# Example: deny all egress from 172.17.0.0/16 except DNS and HTTPS to specific CIDR
+sudo nft add table ip catacumbs
+sudo nft 'add chain ip catacumbs forward { type filter hook forward priority 0; policy accept; }'
+sudo nft add rule ip catacumbs forward ip saddr 172.17.0.0/16 ip daddr != 172.17.0.0/16 drop
+```
+
+Narrower allowlists (npm, MCP endpoints) require maintenance; hooks remain the primary network policy UX (`network_egress` category).
+
+### Recommended layered model
+
+```
+Layer 1 (IDE):       Cursor hooks     — path rules, .env, ask/block UX, audit log  [shipped]
+Layer 2 (container): gVisor + seccomp — syscall reduction                         [gVisor on; seccomp optional]
+Layer 3 (host):      egress firewall  — network deny/allowlist                    [optional]
+```
+
+---
+
 ## KV-07: Unrestricted outbound network
 
 ### Recommendations
 
-1. **Run on an isolated network** (VM, cloud dev box) without access to production VPCs.
+1. **Use the security guard** — set `active_profile` to `high` or `extreme` in `.devcontainer/home/.cursor/catacumbs-security.json` to block outbound network commands.
 
-2. **Use Docker user-defined networks with egress restrictions** or a host firewall blocking container egress except allowlisted domains (advanced; may break npm, MCP, etc.).
+2. **Run on an isolated network** (VM, cloud dev box) without access to production VPCs.
 
-3. **Do not store secrets in `repos/`** — assume exfiltration is possible.
+3. **Use Docker user-defined networks with egress restrictions** or a host firewall blocking container egress except allowlisted domains (advanced; may break npm, MCP, etc.). See **Kernel and container complements** above.
 
-4. **Review agent network activity** in logs when debugging suspicious behavior.
+4. **Do not store secrets in `repos/`** — assume exfiltration is possible.
+
+5. **Review agent network activity** in logs when debugging suspicious behavior.
 
 ---
 
@@ -181,7 +290,8 @@ A practical “safer catacumbs” setup:
 - [ ] Host DBs and admin UIs not exposed on bridge-accessible ports
 - [x] `--cap-add=all` removed from `runArgs` (already the default)
 - [ ] `cursor.chat.autoRun` left disabled (default) or only enabled for trusted sessions
-- [ ] Post-session `git diff` on `.cursor/`, `.agents/`, and `repos/`
+- [ ] Security guard profile set (`medium` or stricter) in `.devcontainer/home/.cursor/catacumbs-security.json`
+- [ ] Guard hooks + profiles mounted read-only via `.devcontainer/home/.cursor/` overlays (shipped in `devcontainer.json`)
 - [ ] Catacumbs runs on a dedicated dev machine or VM, not your daily driver with full keys
 
 ---

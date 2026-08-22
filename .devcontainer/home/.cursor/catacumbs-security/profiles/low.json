@@ -1,0 +1,19 @@
+{
+  "id": "low",
+  "label": "Low",
+  "description": "Ask before most actions; hard-block guard policy, container escape, and writes outside /repos.",
+  "categories": {
+    "guard_policy": { "enabled": true, "action": "block", "notify": true },
+    "ssh_dir": { "enabled": true, "action": "ask" },
+    "secret_values": { "enabled": true, "action": "ask" },
+    "credential_access": { "enabled": true, "action": "ask" },
+    "destructive_fs": { "enabled": true, "action": "ask" },
+    "privilege_escalation": { "enabled": true, "action": "ask" },
+    "container_escape": { "enabled": true, "action": "block", "notify": true },
+    "git_destructive": { "enabled": true, "action": "ask" },
+    "network_egress": { "enabled": true, "action": "ask" },
+    "http_tools": { "enabled": true, "action": "ask" },
+    "subagent_spawn": { "enabled": true, "action": "ask" },
+    "file_write_outside_repos": { "enabled": true, "action": "block", "notify": true }
+  }
+}

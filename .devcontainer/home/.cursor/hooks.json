@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "if [ -f .cursor/hooks/catacumbs-hook.sh ]; then bash .cursor/hooks/catacumbs-hook.sh guard; elif [ -f ~/.cursor/hooks/catacumbs-hook.sh ]; then bash ~/.cursor/hooks/catacumbs-hook.sh guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacumbs hook entrypoint not found.\"}'; exit 1; fi",
+        "failClosed": true
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "if [ -f .cursor/hooks/catacumbs-hook.sh ]; then bash .cursor/hooks/catacumbs-hook.sh guard; elif [ -f ~/.cursor/hooks/catacumbs-hook.sh ]; then bash ~/.cursor/hooks/catacumbs-hook.sh guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacumbs hook entrypoint not found.\"}'; exit 1; fi",
+        "failClosed": true
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "if [ -f .cursor/hooks/catacumbs-hook.sh ]; then bash .cursor/hooks/catacumbs-hook.sh guard; elif [ -f ~/.cursor/hooks/catacumbs-hook.sh ]; then bash ~/.cursor/hooks/catacumbs-hook.sh guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacumbs hook entrypoint not found.\"}'; exit 1; fi",
+        "failClosed": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "if [ -f .cursor/hooks/catacumbs-hook.sh ]; then bash .cursor/hooks/catacumbs-hook.sh guard; elif [ -f ~/.cursor/hooks/catacumbs-hook.sh ]; then bash ~/.cursor/hooks/catacumbs-hook.sh guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacumbs hook entrypoint not found.\"}'; exit 1; fi",
+        "matcher": "WebFetch|WebSearch|Read|Grep|Task|Write|StrReplace|Delete|EditNotebook",
+        "failClosed": true
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "if [ -f .cursor/hooks/catacumbs-hook.sh ]; then bash .cursor/hooks/catacumbs-hook.sh audit; elif [ -f ~/.cursor/hooks/catacumbs-hook.sh ]; then bash ~/.cursor/hooks/catacumbs-hook.sh audit; else printf '%s\\n' '{}'; exit 1; fi",
+        "matcher": "Read|Grep|Shell"
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "if [ -f .cursor/hooks/catacumbs-hook.sh ]; then bash .cursor/hooks/catacumbs-hook.sh audit; elif [ -f ~/.cursor/hooks/catacumbs-hook.sh ]; then bash ~/.cursor/hooks/catacumbs-hook.sh audit; else printf '%s\\n' '{}'; exit 1; fi"
+      }
+    ]
+  }
+}

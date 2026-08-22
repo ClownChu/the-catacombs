@@ -80,11 +80,13 @@ Typical targets:
 **Severity:** Medium  
 **Container escape required:** No
 
-Because `.cursor/` and `.agents/` are mounted, an agent can persist changes that affect **future** sessions:
+Because `.cursor/` (rules, MCP, settings) and `.agents/` are mounted writable, an agent can persist changes that affect **future** sessions:
 
-- Weaken or remove safety rules in `.cursor/rules/`
+- Weaken or remove safety rules in `.cursor/rules/` (except guard hooks/config — those are read-only overlays from `.devcontainer/home/.cursor/`)
 - Add malicious MCP server entries in `.cursor/mcp.json`
 - Install or alter skills under `.agents/skills/`
+
+Guard artifacts (`hooks.json`, `hooks/`, `catacumbs-security.json`, `catacumbs-security/`) are overlay-mounted read-only and blocked from agent read/write by hooks at every profile.
 
 **Impact:** Long-lived compromise without repeating the initial prompt; gradual policy erosion that may not be obvious in a diff review.
 

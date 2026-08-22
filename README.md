@@ -108,7 +108,11 @@ On first build the image is created from `.devcontainer/Dockerfile`. Bind mounts
 | Host path | Container path |
 |-----------|----------------|
 | `repos/` | `/repos` (workspace) |
-| `.cursor/` | `/home/agent/.cursor` |
+| `.cursor/` | `/home/agent/.cursor` (writable — rules, MCP, settings) |
+| `.devcontainer/home/.cursor/hooks` | `/home/agent/.cursor/hooks` (read-only overlay) |
+| `.devcontainer/home/.cursor/hooks.json` | `/home/agent/.cursor/hooks.json` (read-only overlay) |
+| `.devcontainer/home/.cursor/catacumbs-security` | `/home/agent/.cursor/catacumbs-security` (read-only overlay) |
+| `.devcontainer/home/.cursor/catacumbs-security.json` | `/home/agent/.cursor/catacumbs-security.json` (read-only overlay) |
 | `.agents/` | `/home/agent/.agents` |
 | `.devcontainer/home/.ssh/` | `/home/agent/.ssh` |
 | `skills-lock.json` | `/home/agent/.skills-lock.json` |
@@ -155,6 +159,58 @@ Use `host.docker.internal` for any host-exposed HTTP/HTTPS endpoint, including d
 
 No database **server** runs inside the sandbox. PostgreSQL, MySQL/MariaDB, and other databases run on the host via Docker; connect with `host.docker.internal` and the port your compose stack exposes. **Clients** for PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) are pre-installed in the container.
 
+## Security guard
+
+Cursor hooks enforce a **profile-driven security guard** on agent actions. Canonical guard sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only into `/home/agent/.cursor/` (hooks, `hooks.json`, `catacumbs-security/`, `catacumbs-security.json`). The rest of `.cursor/` (rules, MCP, settings) stays writable via the general bind mount.
+
+Agents **may** edit `.cursor/` except the four guard artifacts above. They **cannot read or write** `hooks.json`, `hooks/`, `catacumbs-security.json`, or `catacumbs-security/` — blocked at every profile with user notification. Files under `.ssh/` cannot be read or modified except **reading** `*.pub` keys.
+
+### Profiles
+
+| Profile | Summary |
+|---------|---------|
+| `low` | Ask before most actions; hard-block guard policy, container escape, writes outside `/repos` |
+| `medium` (default) | Same ask-default model as low |
+| `high` | Blocks network egress, HTTP tools, credential access, destructive commands |
+| `extreme` | High + asks before subagent spawn |
+| `you-shall-not-pass` | Blocks subagents and writes outside `/repos` |
+
+Select the active profile in `.devcontainer/home/.cursor/catacumbs-security.json` (overlay-mounted at `~/.cursor/catacumbs-security.json`):
+
+```json
+{
+  "version": 1,
+  "active_profile": "medium",
+  "overrides": {}
+}
+```
+
+Per-category overrides (`action`: `block` | `ask` | `allow`; `notify`: `true`) merge on top of the profile without editing profile files.
+
+### `.env` and secret values
+
+The `secret_values` category is **enabled at every level**. On `low`/`medium`, shell access to secrets is **ask**; direct file reads (`beforeReadFile`, `Read`/`Grep`) are **denied** because Cursor cannot prompt on those hooks. On `high` and above, secret access is blocked outright. Violations emit `user_message` + `agent_message` (blocks) and an audit line to `~/.cursor/catacumbs-security-audit.log` (names/paths only — never values).
+
+### Hook vs kernel layers
+
+| Layer | Role |
+|-------|------|
+| **IDE hooks** (shipped) | Path-aware rules, `.env` blocking, ask/block UX, audit log — `hooks.json` resolves `catacumbs-hook.sh` from `.cursor/hooks/` first, then `~/.cursor/hooks/` |
+| **gVisor + seccomp** (optional) | Syscall reduction — gVisor already enabled; seccomp documented in [security-recommendations](docs/security-recommendations.md) |
+| **Host egress firewall** (optional) | Network deny/allowlist on the Docker bridge |
+
+Hooks are the primary enforcement layer; kernel/host hardening is complementary. See [docs/security-recommendations.md](docs/security-recommendations.md) for optional complements and read-only mount guidance.
+
+### Run guard tests
+
+Run from the **host** (agents cannot read the hooks directory):
+
+```bash
+python3 -m unittest discover -s .devcontainer/home/.cursor/hooks -p 'test_*.py' -v
+```
+
+Rebuild the devcontainer after mount changes.
+
 ## Agent tooling
 
 Cursor agents in this sandbox follow rules in `.cursor/rules/`:
@@ -197,7 +253,7 @@ The sandbox limits Docker and root access, but an agent still has **intentional 
 | **Bind mounts** | `repos/`, `.cursor/`, `.agents/`, and `.ssh/` are read-write on the host — no container escape needed |
 | **SSH keys** | The mounted private key can push to repos and `ssh` to remote hosts |
 | **Host services** | `host.docker.internal` reaches databases and APIs exposed on the host |
-| **Persistence** | Agents can modify rules, skills, and MCP config for future sessions |
+| **Persistence** | Agents can modify rules, skills, and MCP config for future sessions; guard hooks/config are read-only overlays |
 
 The container runs with Docker's **default capability set** (no `--cap-add=all`) under gVisor.
 
