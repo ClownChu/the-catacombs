@@ -1,1 +1,7 @@
+.agents/skills/
+
+repos/
+
+.devcontainer/home/.ssh/
+!.devcontainer/home/.ssh/known_hosts
 .devcontainer/home/.cursor/hooks/__pycache__
