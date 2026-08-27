@@ -211,6 +211,8 @@ Run from the **host** (agents cannot read the hooks directory):
 python3 -m unittest discover -s .devcontainer/home/.cursor/hooks -p 'test_*.py' -v
 ```
 
+GitHub Actions runs the same command on pull requests.
+
 Rebuild the devcontainer after mount changes.
 
 ## Agent tooling

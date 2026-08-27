@@ -23,10 +23,12 @@
     "intention": "run destructive filesystem command",
     "delete_tools": ["Delete"],
     "workspace_prefix": "/repos/",
-    "shell_patterns": [
+    "workspace_shell_patterns": [
       "\\brm\\b",
       "\\brmdir\\b",
-      "\\bunlink\\b",
+      "\\bunlink\\b"
+    ],
+    "shell_patterns": [
       "\\bmkfs\\.",
       "\\bdd\\s+if=",
       "\\bshred\\b",
@@ -166,6 +168,7 @@
   "ssh_dir": {
     "matcher": "path",
     "intention": "access SSH directory",
+    "shell_exclude_patterns": ["\\bln\\s+-[a-zA-Z]*s\\b"],
     "path_patterns": ["**/.ssh/**"],
     "read_allow_suffixes": [".pub"],
     "shell_allow_pub_read": true,
@@ -175,6 +178,7 @@
   "network_egress": {
     "matcher": "shell_regex",
     "intention": "reach outbound network",
+    "shell_exclude_patterns": [".ssh/"],
     "shell_patterns": [
       "\\bcurl\\b",
       "\\bwget\\b",
@@ -214,7 +218,8 @@
     "tools": ["Task"]
   },
   "file_write_outside_repos": {
-    "matcher": "write_prefix",
+    "matcher": "prefix",
+    "direction": "write",
     "intention": "write outside workspace",
     "write_path_exclude_prefix": "/repos/",
     "write_path_allow_patterns": [
@@ -227,6 +232,8 @@
   "agent_config": {
     "matcher": "path",
     "intention": "modify agent policy or skills",
+    "match_writes": true,
+    "match_reads": false,
     "path_patterns": [
       "**/.agents/**",
       "**/.cursor/rules/**",
@@ -238,7 +245,8 @@
     "read_tools": ["Read", "Grep"]
   },
   "file_read_outside_repos": {
-    "matcher": "read_prefix",
+    "matcher": "prefix",
+    "direction": "read",
     "intention": "read outside workspace",
     "read_path_include_prefix": "/repos/",
     "read_tools": ["Read", "Grep"]

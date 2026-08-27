@@ -3,38 +3,38 @@
   "hooks": {
     "beforeShellExecution": [
       {
-        "command": "HOOK=''; for p in \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\" \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
+        "command": "HOOK=''; for p in \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
         "failClosed": true
       }
     ],
     "beforeMCPExecution": [
       {
-        "command": "HOOK=''; for p in \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\" \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
+        "command": "HOOK=''; for p in \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
         "failClosed": true
       }
     ],
     "beforeReadFile": [
       {
-        "command": "HOOK=''; for p in \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\" \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
+        "command": "HOOK=''; for p in \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
         "failClosed": true
       }
     ],
     "preToolUse": [
       {
-        "command": "HOOK=''; for p in \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\" \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
+        "command": "HOOK=''; for p in \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" guard; else printf '%s\\n' '{\"permission\":\"deny\",\"user_message\":\"Catacombs hook entrypoint not found.\"}'; fi",
         "matcher": "WebFetch|WebSearch|Read|Grep|Glob|Write|StrReplace|Delete|EditNotebook|Shell|CallDynamicTool|CallMcpTool",
         "failClosed": true
       }
     ],
     "postToolUse": [
       {
-        "command": "HOOK=''; for p in \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\" \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" audit; else printf '%s\\n' '{}'; fi",
+        "command": "HOOK=''; for p in \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" audit; else printf '%s\\n' '{}'; fi",
         "matcher": "Read|Grep|Shell"
       }
     ],
     "afterShellExecution": [
       {
-        "command": "HOOK=''; for p in \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\" \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" audit; else printf '%s\\n' '{}'; fi"
+        "command": "HOOK=''; for p in \"$HOME/.cursor/hooks/catacombs-hook.sh\" \"${CURSOR_PROJECT_DIR}/.devcontainer/home/.cursor/hooks/catacombs-hook.sh\"; do [ -f \"$p\" ] && HOOK=\"$p\" && break; done; if [ -n \"$HOOK\" ]; then bash \"$HOOK\" audit; else printf '%s\\n' '{}'; fi"
       }
     ]
   }

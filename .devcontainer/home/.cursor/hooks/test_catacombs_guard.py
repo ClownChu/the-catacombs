@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from catacombs_guard import (  # noqa: E402
     DEFAULT_PROFILE,
     GuardResult,
+    apply_ask_deferral,
     dispatch_pretooluse,
     evaluate,
     evaluate_audit,
@@ -46,6 +47,8 @@ SCENARIOS = [
     {"id": "L16", "profile": "low", "event": {"file_path": "/home/agent/.ssh/id_ed25519", "content": "key", "hook": "beforeReadFile"}, "expect": {"permission": "deny", "category": "ssh_dir"}},
     {"id": "L17", "profile": "low", "event": {"tool_name": "Task", "hook": "preToolUse"}, "expect": {"permission": "allow"}},
     {"id": "M1", "profile": "medium", "event": {"command": "rm -rf /tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
+    {"id": "M1b", "profile": "medium", "event": {"command": "rm /repos/app/foo", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "destructive_fs"}},
+    {"id": "M1c", "profile": "medium", "event": {"command": "rm /tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "file_write_outside_repos"}},
     {"id": "M2", "profile": "medium", "event": {"command": "curl https://example.com", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "network_egress"}},
     {"id": "M3", "profile": "medium", "event": {"file_path": "/repos/app/.env", "content": "DB_PASSWORD=x", "hook": "beforeReadFile"}, "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"}},
     {"id": "M4", "profile": "medium", "event": {"tool_name": "Read", "file_path": "/repos/app/.env.example", "hook": "preToolUse"}, "expect": {"permission": "allow"}},
@@ -79,6 +82,79 @@ SCENARIOS = [
     {"id": "M14", "profile": "medium", "event": {"tool_name": "Write", "file_path": ".cursor/rules/catacombs.mdc", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "agent_config"}},
 ]
 
+GUARD_MAIN_SCENARIOS = [
+    {"id": "write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/tmp/audit-probe-write.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "write_home_agent", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/home/agent/audit-probe-write.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "write_etc", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/etc/audit-probe-write.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "redirect_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "echo audit > /tmp/audit-probe-redirect.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "rm_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm /tmp/audit-probe-missing"}}, "expect": {"permission": "deny"}},
+    {"id": "rm_rf_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm -rf /tmp/x"}}, "expect": {"permission": "deny"}},
+    {"id": "rm_inside_repos_ask", "payload": {"hook_event_name": "beforeShellExecution", "command": "rm /repos/app/foo"}, "expect": {"permission": "ask"}},
+    {"id": "delete_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Delete", "tool_input": {"path": "/tmp/audit-probe-delete.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "delete_inside_repos", "payload": {"hook_event_name": "preToolUse", "tool_name": "Delete", "tool_input": {"path": "/repos/app/foo"}}, "expect": {"permission": "deny"}},
+    {"id": "cat_proc_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "cat /proc/self/environ"}}, "expect": {"permission": "deny"}},
+    {"id": "bare_set", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "set"}}, "expect": {"permission": "deny"}},
+    {"id": "set_options", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "set -euo pipefail"}}, "expect": {"permission": "allow"}},
+    {"id": "node_env_keys", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": 'node -e "console.log(Object.keys(process.env))"'}}, "expect": {"permission": "deny"}},
+    {"id": "echo_home", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "echo $HOME"}}, "expect": {"permission": "allow"}},
+    {"id": "python_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/tmp/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "node_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync('/tmp/x','a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "php_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents('/tmp/x','a');\""}}, "expect": {"permission": "deny"}},
+    {"id": "python_os_remove_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; os.remove('/tmp/x')\""}}, "expect": {"permission": "deny"}},
+    {"id": "python_read_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"print(open('/tmp/x').read())\""}}, "expect": {"permission": "allow"}},
+    {"id": "read_git_credentials", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/home/agent/.git-credentials"}}, "expect": {"permission": "deny"}},
+    {"id": "read_home_npmrc", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/home/agent/.npmrc"}}, "expect": {"permission": "deny"}},
+    {"id": "read_repos_npmrc", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/repos/app/.npmrc"}}, "expect": {"permission": "allow"}},
+    {"id": "write_inside_repos", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/repos/app/foo.py"}}, "expect": {"permission": "allow"}},
+    {"id": "target_file_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": json.dumps({"target_file": "/tmp/audit-probe-target-file.txt"})}, "expect": {"permission": "deny"}},
+    {"id": "read_env_tool_input", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/repos/app/.env"}}, "expect": {"permission": "deny"}},
+    {"id": "read_env_file_path", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "file_path": "/repos/app/.env", "tool_input": {}}, "expect": {"permission": "deny"}},
+    {"id": "read_env_uri", "payload": {"hook_event_name": "beforeReadFile", "file_path": "file:///repos/app/.env"}, "expect": {"permission": "deny"}},
+    {"id": "read_relative_env", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": ".env"}}, "expect": {"permission": "deny"}},
+    {"id": "read_env_example", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/repos/app/.env.example"}}, "expect": {"permission": "allow"}},
+    {"id": "split_hooks_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/.cursor/'+'hoo'+'ks.json')\""}}, "expect": {"permission": "deny"}},
+    {"id": "split_security_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/.cursor/'+'cata'+'combs-security.json')\""}}, "expect": {"permission": "deny"}},
+    {"id": "split_proc_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/proc/self/'+'envir'+'on')\""}}, "expect": {"permission": "deny"}},
+    {"id": "chr_python_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(chr(47)+'t'+'mp'+'/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "chr_node_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync(String.fromCharCode(47)+'tmp/x','a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "chr_php_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents(chr(47).'tmp/x','a');\""}}, "expect": {"permission": "deny"}},
+    {"id": "tempfile_mkstemp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import tempfile; tempfile.mkstemp()\""}}, "expect": {"permission": "deny"}},
+    {"id": "os_remove_inside_deferred", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; os.remove('/repos/app/foo')\""}}, "expect": {"permission": "allow"}},
+    {"id": "awk_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "awk 'BEGIN { print ENVIRON[\"HOME\"] }'"}}, "expect": {"permission": "deny"}},
+    {"id": "php_server_count", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r 'echo count($_SERVER);'"}}, "expect": {"permission": "deny"}},
+    {"id": "urllib_deferred_allow", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import urllib.request; urllib.request.urlopen('https://example.com')\""}}, "expect": {"permission": "allow"}},
+    {"id": "mount_escape", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "mount -t tmpfs tmpfs /mnt"}}, "expect": {"permission": "deny"}},
+    {"id": "pivot_root_escape", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "pivot_root /new_root /old_root"}}, "expect": {"permission": "deny"}},
+    {"id": "echo_dev_null", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "echo hi >/dev/null"}}, "expect": {"permission": "allow"}},
+    {"id": "stderr_dev_null", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "ls /nonexistent 2>/dev/null"}}, "expect": {"permission": "allow"}},
+    {"id": "hex_security_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/.cursor/'+bytes.fromhex('63617461636f6d62732d73656375726974792e6a736f6e'))\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_hooks_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/.cursor/'+bytes.fromhex('686f6f6b732e6a736f6e'))\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_env_file", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(bytes.fromhex('2e656e76'))\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_proc_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(bytes.fromhex('2f70726f632f73656c662f656e7669726f6e'))\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_getattr_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; getattr(os, bytes.fromhex('656e7669726f6e'))\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_buffer_process_env", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"console.log(process[Buffer.from('656e76','hex')])\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_tmp_python", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(bytes.fromhex('2f746d70')+'/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_tmp_node", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync(Buffer.from('2f746d70','hex')+'/x','a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_tmp_php", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents(hex2bin('2f746d702f78'),'a');\""}}, "expect": {"permission": "deny"}},
+    {"id": "b64_tmp_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(base64.b64decode('L3RtcC94'),'w').write('a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "b64_env_file", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(base64.b64decode('LmVudg=='))\""}}, "expect": {"permission": "deny"}},
+    {"id": "chr_dot_ssh", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/'+chr(46)+'ssh/known_hosts')\""}}, "expect": {"permission": "deny", "message_contains": "ssh"}},
+    {"id": "awk_environ_iterate", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "awk 'BEGIN{c=0; for (k in ENVIRON) c++'"}}, "expect": {"permission": "deny"}},
+    {"id": "awk_environ_length", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "awk 'BEGIN { print length(ENVIRON) }'"}}, "expect": {"permission": "deny"}},
+    {"id": "bare_mount", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "mount"}}, "expect": {"permission": "deny"}},
+    {"id": "node_fetch_deferred", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"fetch('https://example.com')\""}}, "expect": {"permission": "allow", "message_excludes": "write outside"}},
+]
+
+
+def _run_guard(payload: dict) -> dict:
+    with patch("sys.stdin", io.StringIO(json.dumps(payload))):
+        with patch("sys.stdout", new_callable=io.StringIO) as out:
+            with patch("catacombs_guard.write_audit"):
+                code = guard_main()
+    if code != 0:
+        raise AssertionError(f"guard_main returned {code}")
+    return json.loads(out.getvalue())
+
 
 def assert_guard_result(test: unittest.TestCase, result: GuardResult, expect: dict) -> None:
     test.assertEqual(
@@ -103,653 +179,26 @@ def assert_guard_result(test: unittest.TestCase, result: GuardResult, expect: di
         test.assertIn("Intention:", payload["user_message"])
 
 
-class TestAuditProbeGuardMain(unittest.TestCase):
-    """Replay audit probes 8.x and 15.x through guard_main (live stdin JSON shape)."""
-
-    def _run_guard(self, payload: dict) -> dict:
-        with patch("sys.stdin", io.StringIO(json.dumps(payload))):
-            with patch("sys.stdout", new_callable=io.StringIO) as out:
-                with patch("catacombs_guard.write_audit"):
-                    code = guard_main()
-        self.assertEqual(code, 0)
-        return json.loads(out.getvalue())
-
-    def test_write_outside_tmp_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Write",
-                "tool_input": {"path": "/tmp/audit-probe-write.txt"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-        self.assertIn("user_message", result)
-        self.assertIn("agent_message", result)
-
-    def test_write_outside_home_agent_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Write",
-                "tool_input": {"path": "/home/agent/audit-probe-write.txt"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_write_outside_etc_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Write",
-                "tool_input": {"path": "/etc/audit-probe-write.txt"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_shell_redirect_outside_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "echo audit > /tmp/audit-probe-redirect.txt"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_shell_rm_outside_denied(self):
-        for command in ("rm /tmp/audit-probe-missing", "rm /tmp/audit-probe-existing"):
-            with self.subTest(command=command):
-                result = self._run_guard(
-                    {
-                        "hook_event_name": "preToolUse",
-                        "tool_name": "Shell",
-                        "tool_input": {"command": command},
-                    }
-                )
-                self.assertEqual(result["permission"], "deny")
-
-    def test_shell_rm_rf_outside_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "rm -rf /tmp/x"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_shell_rm_inside_repos_asks(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "beforeShellExecution",
-                "command": "rm /repos/app/foo",
-            }
-        )
-        self.assertEqual(result["permission"], "ask")
-
-    def test_delete_outside_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Delete",
-                "tool_input": {"path": "/tmp/audit-probe-delete.txt"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_delete_inside_repos_destructive_fs(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Delete",
-                "tool_input": {"path": "/repos/app/foo"},
-            }
-        )
-        # preToolUse cannot surface ask; policy is destructive_fs (ask → deny)
-        self.assertEqual(result["permission"], "deny")
-        self.assertIn("user_message", result)
-
-    def test_cat_proc_self_environ_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "cat /proc/self/environ"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_bare_set_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "set"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_set_shell_options_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "set -euo pipefail"},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_node_process_env_keys_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": 'node -e "console.log(Object.keys(process.env))"'
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_echo_home_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "echo $HOME"},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_python_write_outside_tmp_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "open('/tmp/x','w').write('a')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_node_write_outside_tmp_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """node -e "require('fs').writeFileSync('/tmp/x','a')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_php_write_outside_tmp_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """php -r "file_put_contents('/tmp/x','a');" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_python_os_remove_outside_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "import os; os.remove('/tmp/x')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_python_read_outside_tmp_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "print(open('/tmp/x').read())" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_read_git_credentials_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Read",
-                "tool_input": {"path": "/home/agent/.git-credentials"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_read_home_npmrc_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Read",
-                "tool_input": {"path": "/home/agent/.npmrc"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_read_repos_npmrc_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Read",
-                "tool_input": {"path": "/repos/app/.npmrc"},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_delete_inside_repos_evaluate_destructive_fs(self):
-        with patch("catacombs_guard.write_audit"):
-            result = evaluate(
-                {
-                    "hook": "preToolUse",
-                    "tool_name": "Delete",
-                    "file_path": "/repos/app/foo",
-                },
-                profile_id="medium",
-                overrides={},
-                config_root=CONFIG_ROOT,
-            )
-        self.assertEqual(result.category, "destructive_fs")
-        self.assertEqual(result.subtype, "delete")
-
-    def test_write_inside_repos_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Write",
-                "tool_input": {"path": "/repos/app/foo.py"},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_tool_input_json_string_and_target_file(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Write",
-                "tool_input": json.dumps({"target_file": "/tmp/audit-probe-target-file.txt"}),
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-
-class TestAudit3GuardMain(unittest.TestCase):
-    """Replay audit 3 probes through guard_main (obfuscation + Read path shapes)."""
-
-    def _run_guard(self, payload: dict) -> dict:
-        with patch("sys.stdin", io.StringIO(json.dumps(payload))):
-            with patch("sys.stdout", new_callable=io.StringIO) as out:
-                with patch("catacombs_guard.write_audit"):
-                    code = guard_main()
-        self.assertEqual(code, 0)
-        return json.loads(out.getvalue())
-
-    def test_read_env_tool_input_path_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Read",
-                "tool_input": {"path": "/repos/app/.env"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_read_env_top_level_file_path_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Read",
-                "file_path": "/repos/app/.env",
-                "tool_input": {},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_read_env_file_uri_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "beforeReadFile",
-                "file_path": "file:///repos/app/.env",
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_read_relative_env_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Read",
-                "tool_input": {"path": ".env"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_read_env_example_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Read",
-                "tool_input": {"path": "/repos/app/.env.example"},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_split_string_hooks_json_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "open('/home/agent/.cursor/'+'hoo'+'ks.json')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_split_string_catacombs_security_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "open('/home/agent/.cursor/'+'cata'+'combs-security.json')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_split_string_proc_environ_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "open('/proc/self/'+'envir'+'on')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_chr_tmp_python_write_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "open(chr(47)+'t'+'mp'+'/x','w').write('a')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_chr_tmp_node_write_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """node -e "require('fs').writeFileSync(String.fromCharCode(47)+'tmp/x','a')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_chr_tmp_php_write_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """php -r "file_put_contents(chr(47).'tmp/x','a');" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_tempfile_mkstemp_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "import tempfile; tempfile.mkstemp()" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_os_remove_inside_repos_deferred_via_pretooluse(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "import os; os.remove('/repos/app/foo')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_awk_environ_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "awk 'BEGIN { print ENVIRON[\"HOME\"] }'"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_php_server_count_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": """php -r 'echo count($_SERVER);'"""},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_urllib_urlopen_asks_on_medium(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {
-                    "command": """python3 -c "import urllib.request; urllib.request.urlopen('https://example.com')" """
-                },
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_mount_container_escape_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "mount -t tmpfs tmpfs /mnt"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_pivot_root_container_escape_denied(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "pivot_root /new_root /old_root"},
-            }
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_echo_dev_null_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "echo hi >/dev/null"},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_stderr_redirect_dev_null_allowed(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": "ls /nonexistent 2>/dev/null"},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-
-    def test_os_remove_inside_repos_asks_before_shell(self):
-        with patch("catacombs_guard.write_audit"):
-            result = evaluate(
-                {
-                    "hook": "beforeShellExecution",
-                    "command": """python3 -c "import os; os.remove('/repos/app/foo')" """,
-                },
-                profile_id="medium",
-                overrides={},
-                config_root=CONFIG_ROOT,
-            )
-        self.assertEqual(result.permission, "ask")
-        self.assertEqual(result.category, "destructive_fs")
-
-
-class TestAudit4GuardMain(unittest.TestCase):
-    """Replay audit 4 probes: hex argv decode, ENVIRON/mount needles, fetch URLs."""
-
-    def _run_guard(self, payload: dict) -> dict:
-        with patch("sys.stdin", io.StringIO(json.dumps(payload))):
-            with patch("sys.stdout", new_callable=io.StringIO) as out:
-                with patch("catacombs_guard.write_audit"):
-                    code = guard_main()
-        self.assertEqual(code, 0)
-        return json.loads(out.getvalue())
-
-    def _shell(self, command: str) -> dict:
-        return self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": command},
-            }
-        )
-
-    def test_hex_catacombs_security_json_denied(self):
-        result = self._shell(
-            """python3 -c "open('/home/agent/.cursor/'+bytes.fromhex('63617461636f6d62732d73656375726974792e6a736f6e'))" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_hooks_json_denied(self):
-        result = self._shell(
-            """python3 -c "open('/home/agent/.cursor/'+bytes.fromhex('686f6f6b732e6a736f6e'))" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_env_file_denied(self):
-        result = self._shell(
-            """python3 -c "open(bytes.fromhex('2e656e76'))" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_proc_self_environ_denied(self):
-        result = self._shell(
-            """python3 -c "open(bytes.fromhex('2f70726f632f73656c662f656e7669726f6e'))" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_getattr_os_environ_denied(self):
-        result = self._shell(
-            """python3 -c "import os; getattr(os, bytes.fromhex('656e7669726f6e'))" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_buffer_process_env_denied(self):
-        result = self._shell(
-            """node -e "console.log(process[Buffer.from('656e76','hex')])" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_tmp_python_write_denied(self):
-        result = self._shell(
-            """python3 -c "open(bytes.fromhex('2f746d70')+'/x','w').write('a')" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_tmp_node_write_denied(self):
-        result = self._shell(
-            """node -e "require('fs').writeFileSync(Buffer.from('2f746d70','hex')+'/x','a')" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_hex_tmp_php_write_denied(self):
-        result = self._shell(
-            """php -r "file_put_contents(hex2bin('2f746d702f78'),'a');" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_b64_tmp_write_denied(self):
-        result = self._shell(
-            """python3 -c "open(base64.b64decode('L3RtcC94'),'w').write('a')" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_b64_env_file_denied(self):
-        result = self._shell(
-            """python3 -c "open(base64.b64decode('LmVudg=='))" """
-        )
-        self.assertEqual(result["permission"], "deny")
-
-    def test_chr_dot_ssh_denied_not_network(self):
-        result = self._shell(
-            """python3 -c "open('/home/agent/'+chr(46)+'ssh/known_hosts')" """
-        )
-        self.assertEqual(result["permission"], "deny")
-        self.assertIn("ssh", result.get("user_message", "").lower())
-
-    def test_awk_environ_iterate_denied(self):
-        result = self._shell("awk 'BEGIN{c=0; for (k in ENVIRON) c++}'")
-        self.assertEqual(result["permission"], "deny")
-
-    def test_awk_environ_length_denied(self):
-        result = self._shell("awk 'BEGIN { print length(ENVIRON) }'")
-        self.assertEqual(result["permission"], "deny")
-
-    def test_bare_mount_denied(self):
-        result = self._shell("mount")
-        self.assertEqual(result["permission"], "deny")
-
-    def test_node_fetch_asks_network_not_write_outside(self):
-        result = self._run_guard(
-            {
-                "hook_event_name": "preToolUse",
-                "tool_name": "Shell",
-                "tool_input": {"command": """node -e "fetch('https://example.com')"""},
-            }
-        )
-        self.assertEqual(result["permission"], "allow")
-        self.assertNotIn("write outside", result.get("user_message", "").lower())
-
-    def test_echo_home_still_allowed(self):
-        result = self._shell("echo $HOME")
-        self.assertEqual(result["permission"], "allow")
+class TestGuardMainScenarios(unittest.TestCase):
+    def test_guard_main_scenarios(self):
+        for row in GUARD_MAIN_SCENARIOS:
+            with self.subTest(scenario_id=row["id"]):
+                result = _run_guard(row["payload"])
+                expect = row["expect"]
+                self.assertEqual(result["permission"], expect["permission"])
+                if "message_contains" in expect:
+                    self.assertIn(
+                        expect["message_contains"],
+                        result.get("user_message", "").lower(),
+                    )
+                if "message_excludes" in expect:
+                    self.assertNotIn(
+                        expect["message_excludes"],
+                        result.get("user_message", "").lower(),
+                    )
+                if expect["permission"] == "deny":
+                    self.assertIn("user_message", result)
+                    self.assertIn("agent_message", result)
 
 
 class TestHookDispatch(unittest.TestCase):
@@ -764,10 +213,7 @@ class TestHookDispatch(unittest.TestCase):
         )
 
     def test_infer_hook_from_shape(self):
-        self.assertEqual(
-            normalize_hook_name({"command": "echo hi"}),
-            "beforeShellExecution",
-        )
+        self.assertEqual(normalize_hook_name({"command": "echo hi"}), "beforeShellExecution")
         self.assertEqual(
             normalize_hook_name({"file_path": "/repos/foo.txt"}),
             "beforeReadFile",
@@ -795,51 +241,66 @@ class TestHookDispatch(unittest.TestCase):
         self.assertEqual(hook, "beforeReadFile")
         self.assertEqual(shaped["file_path"], "/repos/app/package.json")
 
-    def test_pretooluse_shell_curl_defers_ask_on_medium(self):
+    def test_apply_ask_deferral_curl_on_medium(self):
         with patch("catacombs_guard.write_audit"):
-            result = evaluate(
-                {
-                    "hook": "beforeShellExecution",
-                    "command": "curl -sI --max-time 5 https://example.com",
-                },
-                profile_id="medium",
-                overrides={},
-                config_root=CONFIG_ROOT,
-                original_hook="preToolUse",
-                defer_ask=True,
+            result = apply_ask_deferral(
+                evaluate(
+                    {
+                        "hook": "beforeShellExecution",
+                        "command": "curl -sI --max-time 5 https://example.com",
+                    },
+                    profile_id="medium",
+                    overrides={},
+                    config_root=CONFIG_ROOT,
+                ),
+                "preToolUse",
+                "beforeShellExecution",
             )
         self.assertEqual(result.permission, "allow")
 
-    def test_pretooluse_shell_printenv_blocks_on_medium(self):
+    def test_apply_ask_deferral_printenv_still_denies(self):
         with patch("catacombs_guard.write_audit"):
-            result = evaluate(
-                {
-                    "hook": "beforeShellExecution",
-                    "command": "printenv",
-                },
-                profile_id="medium",
-                overrides={},
-                config_root=CONFIG_ROOT,
-                original_hook="preToolUse",
-                defer_ask=True,
+            result = apply_ask_deferral(
+                evaluate(
+                    {"hook": "beforeShellExecution", "command": "printenv"},
+                    profile_id="medium",
+                    overrides={},
+                    config_root=CONFIG_ROOT,
+                ),
+                "preToolUse",
+                "beforeShellExecution",
             )
         self.assertEqual(result.permission, "deny")
         self.assertEqual(result.category, "secret_values")
 
-    def test_hook_event_name_read_under_repos_allowed(self):
+    def test_os_remove_inside_repos_asks_before_shell(self):
         with patch("catacombs_guard.write_audit"):
             result = evaluate(
                 {
-                    "hook": "beforeReadFile",
-                    "file_path": "/repos/app/package.json",
+                    "hook": "beforeShellExecution",
+                    "command": "python3 -c \"import os; os.remove('/repos/app/foo')\"",
                 },
                 profile_id="medium",
                 overrides={},
                 config_root=CONFIG_ROOT,
-                original_hook="preToolUse",
-                defer_ask=True,
             )
-        self.assertEqual(result.permission, "allow")
+        self.assertEqual(result.permission, "ask")
+        self.assertEqual(result.category, "destructive_fs")
+
+    def test_delete_inside_repos_evaluate_destructive_fs(self):
+        with patch("catacombs_guard.write_audit"):
+            result = evaluate(
+                {
+                    "hook": "preToolUse",
+                    "tool_name": "Delete",
+                    "file_path": "/repos/app/foo",
+                },
+                profile_id="medium",
+                overrides={},
+                config_root=CONFIG_ROOT,
+            )
+        self.assertEqual(result.category, "destructive_fs")
+        self.assertEqual(result.subtype, "delete")
 
     def test_guard_main_observational_allows(self):
         with patch("sys.stdin", io.StringIO(json.dumps({"hook_event_name": "postToolUse"}))):
@@ -911,48 +372,15 @@ class TestSecretValues(unittest.TestCase):
 class TestGuardPolicy(unittest.TestCase):
     def test_policy_paths_blocked_all_profiles(self):
         events = [
-            {
-                "tool_name": "Write",
-                "file_path": ".cursor/hooks.json",
-                "hook": "preToolUse",
-            },
-            {
-                "tool_name": "Read",
-                "file_path": ".cursor/hooks/catacombs_guard.py",
-                "hook": "preToolUse",
-            },
-            {
-                "tool_name": "Grep",
-                "file_path": ".cursor/catacombs-security/categories.json",
-                "hook": "preToolUse",
-            },
-            {
-                "file_path": ".cursor/hooks.json",
-                "hook": "beforeReadFile",
-            },
-            {
-                "tool_name": "StrReplace",
-                "file_path": ".cursor/catacombs-security.json",
-                "hook": "preToolUse",
-            },
-            {
-                "tool_name": "Write",
-                "file_path": "/home/agent/.cursor/hooks/catacombs_guard.py",
-                "hook": "preToolUse",
-            },
-            {
-                "tool_name": "Write",
-                "file_path": ".devcontainer/home/.cursor/hooks.json",
-                "hook": "preToolUse",
-            },
-            {
-                "command": "echo x > .cursor/hooks.json",
-                "hook": "beforeShellExecution",
-            },
-            {
-                "command": "cat ~/.cursor/hooks.json",
-                "hook": "beforeShellExecution",
-            },
+            {"tool_name": "Write", "file_path": ".cursor/hooks.json", "hook": "preToolUse"},
+            {"tool_name": "Read", "file_path": ".cursor/hooks/catacombs_guard.py", "hook": "preToolUse"},
+            {"tool_name": "Grep", "file_path": ".cursor/catacombs-security/categories.json", "hook": "preToolUse"},
+            {"file_path": ".cursor/hooks.json", "hook": "beforeReadFile"},
+            {"tool_name": "StrReplace", "file_path": ".cursor/catacombs-security.json", "hook": "preToolUse"},
+            {"tool_name": "Write", "file_path": "/home/agent/.cursor/hooks/catacombs_guard.py", "hook": "preToolUse"},
+            {"tool_name": "Write", "file_path": ".devcontainer/home/.cursor/hooks.json", "hook": "preToolUse"},
+            {"command": "echo x > .cursor/hooks.json", "hook": "beforeShellExecution"},
+            {"command": "cat ~/.cursor/hooks.json", "hook": "beforeShellExecution"},
         ]
         for profile in ALL_PROFILES:
             for event in events:
@@ -1039,7 +467,6 @@ class TestGuardPolicy(unittest.TestCase):
                 self.assertEqual(result.permission, "deny")
                 self.assertEqual(result.category, "file_write_outside_repos")
 
-
     def test_agent_config_blocked_high(self):
         with patch("catacombs_guard.write_audit"):
             result = evaluate(
@@ -1071,10 +498,7 @@ class TestSshDir(unittest.TestCase):
                         overrides={},
                         config_root=CONFIG_ROOT,
                     )
-                if profile in ("low", "medium"):
-                    self.assertEqual(result.permission, "deny")
-                else:
-                    self.assertEqual(result.permission, "deny")
+                self.assertEqual(result.permission, "deny")
                 self.assertEqual(result.category, "ssh_dir")
 
     def test_pub_read_allowed(self):

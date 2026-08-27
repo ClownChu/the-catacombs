@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import fnmatch
 import json
 import os
@@ -15,10 +13,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from guard_obfuscation import normalize_command_obfuscation
 from guard_secrets import (
     _var_name_sensitive,
     detect_secret_values_path,
     detect_secret_values_shell,
+)
+from guard_shell import (
+    _INTERPRETER_WRITE_API,
+    _TEMPFILE_WRITE_API,
+    command_accesses_ssh,
+    command_ssh_pub_read_only,
+    interpreter_write_paths,
+    READ_SHELL_CMDS,
+    shell_write_destinations,
+    SHELL_WRITE_CMD,
 )
 
 DEFAULT_PROFILE = "medium"
@@ -47,90 +56,6 @@ OBSERVATIONAL_HOOKS = frozenset(
 )
 ASK_DEFERRAL_TARGET_HOOKS = frozenset({"beforeShellExecution", "beforeMCPExecution"})
 
-WRITE_SHELL_CMDS = re.compile(
-    r"(?:^|[;&|]\s*)(?:rm|mv|cp|chmod|chown|tee|touch|mkdir|truncate|install|sed\s+-i)\b",
-    re.IGNORECASE,
-)
-READ_SHELL_CMDS = re.compile(
-    r"(?:^|[;&|]\s*)(?:cat|head|tail|less|more|grep|awk|sed|python3?|node|php)\b",
-    re.IGNORECASE,
-)
-REDIRECT_TO_SSH = re.compile(
-    r"(?:>>?|tee\s+(?:-a\s+)?)\s*['\"]?[^'\"\s]*\.ssh",
-    re.IGNORECASE,
-)
-SHELL_REDIRECT_PATH = re.compile(
-    r"(?:>>?|tee\s+(?:-[a-zA-Z]+\s+)*(?:-a\s+)?)\s*"
-    r"(?:\"([^\"]+)\"|'([^']+)'|(\S+))",
-    re.IGNORECASE,
-)
-SHELL_WRITE_CMD = re.compile(
-    r"(?:^|[;&|]\s*)"
-    r"(?:rm|rmdir|unlink|mv|cp|chmod|chown|tee|touch|mkdir|truncate|install|sed\s+-i)\b",
-    re.IGNORECASE,
-)
-# ponytail: argv-visible absolute paths only; obfuscated -c/-e without /tmp in string is a ceiling
-_INTERPRETER_WRITE_API = re.compile(
-    r"(?:"
-    r"open\s*\([^)]*['\"][wax+]['\"]"
-    r"|\.write_text\s*\("
-    r"|\.write_bytes\s*\("
-    r"|os\.remove\b"
-    r"|os\.unlink\b"
-    r"|shutil\.rmtree\b"
-    r"|Path\s*\([^)]*\)\.unlink\s*\("
-    r"|writeFileSync\b"
-    r"|writeFile\s*\("
-    r"|appendFile\b"
-    r"|createWriteStream\b"
-    r"|unlinkSync\b"
-    r"|fs\.unlink\b"
-    r"|file_put_contents\b"
-    r"|fopen\s*\([^)]*['\"][wax+]['\"]"
-    r"|unlink\s*\("
-    r")",
-    re.IGNORECASE,
-)
-_ABSOLUTE_PATH_IN_CMD = re.compile(
-    r"""['"](/[^'"]+)['"]|(?<![\w./~])(/(?:tmp|var/tmp|home|etc|usr|dev|root|opt)(?:/[\w./~%-]+)?)"""
-)
-_INTERPRETER_UNLINK_API = re.compile(
-    r"(?:os\.remove\b|os\.unlink\b|unlinkSync\b|fs\.unlink\b|Path\s*\([^)]*\)\.unlink\s*\(|\bunlink\s*\()",
-    re.IGNORECASE,
-)
-_TEMPFILE_WRITE_API = re.compile(
-    r"\b(?:tempfile\.(?:mkstemp|NamedTemporaryFile|TemporaryDirectory)|mkstemp\s*\()",
-    re.IGNORECASE,
-)
-_CHR_LITERAL = re.compile(
-    r"(?:chr|String\.fromCharCode)\s*\(\s*(0x[0-9a-fA-F]+|\d+)\s*\)",
-    re.IGNORECASE,
-)
-_HEX_ESCAPE = re.compile(r"\\x([0-9a-fA-F]{2})")
-_STRING_CONCAT = re.compile(
-    r"""(['"])([^'"]*)\1\s*(?:\+|\.)\s*(['"])([^'"]*)\3"""
-)
-_HEX_DECODE_CALL = re.compile(
-    r"(?:bytes\.fromhex|binascii\.unhexlify|hex2bin)\s*\(\s*"
-    r"(['\"])([0-9a-fA-F]*)\1\s*\)",
-    re.IGNORECASE,
-)
-_BUFFER_HEX_CALL = re.compile(
-    r"Buffer\.from\s*\(\s*(['\"])([0-9a-fA-F]*)\1\s*,\s*['\"]hex['\"]\s*\)",
-    re.IGNORECASE,
-)
-_B64_DECODE_CALL = re.compile(
-    r"(?:base64\.b64decode|base64_decode|atob)\s*\(\s*"
-    r"(['\"])([A-Za-z0-9+/=]*)\1\s*\)",
-    re.IGNORECASE,
-)
-_BUFFER_B64_CALL = re.compile(
-    r"Buffer\.from\s*\(\s*(['\"])([A-Za-z0-9+/=]*)\1\s*,\s*['\"]base64['\"]\s*\)",
-    re.IGNORECASE,
-)
-_DEV_SINKS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr"})
-SSH_PATH_RE = re.compile(r"(?:^|[/\s'\"~])\.ssh(?:/|\b)")
-
 PERMISSION_RANK = {"deny": 3, "ask": 2, "allow": 1}
 
 
@@ -151,6 +76,17 @@ class GuardResult:
         if self.agent_message:
             out["agent_message"] = self.agent_message
         return out
+
+
+@dataclass
+class Hit:
+    order_idx: int
+    category: str
+    subtype: str
+    detail: str
+    permission: str
+    notify: bool
+    cat_def: dict[str, Any]
 
 
 @dataclass
@@ -290,10 +226,6 @@ def path_matches_any(path: str, patterns: list[str]) -> bool:
     return any(_glob_match(path, p) for p in patterns)
 
 
-def path_excluded(path: str, patterns: list[str]) -> bool:
-    return path_matches_any(path, patterns)
-
-
 def normalize_path(path: str) -> str:
     n = path.replace("\\", "/").rstrip("/")
     if n.startswith("~/"):
@@ -330,7 +262,7 @@ def command_writes_policy_path(command: str, cat_def: dict[str, Any]) -> bool:
         + "|".join(re.escape(f) for f in fragments),
         re.IGNORECASE,
     )
-    return bool(redirect.search(n) or WRITE_SHELL_CMDS.search(n))
+    return bool(redirect.search(n) or SHELL_WRITE_CMD.search(n))
 
 
 def command_reads_policy_path(command: str, cat_def: dict[str, Any]) -> bool:
@@ -346,25 +278,6 @@ def command_reads_policy_path(command: str, cat_def: dict[str, Any]) -> bool:
     ):
         return True
     return False
-
-
-def is_ssh_pub_path(path: str, suffixes: list[str]) -> bool:
-    n = normalize_path(path)
-    return path_matches_any(n, ["**/.ssh/**"]) and any(n.endswith(s) for s in suffixes)
-
-
-def command_accesses_ssh(command: str) -> bool:
-    return bool(SSH_PATH_RE.search(command.replace("\\", "/")))
-
-
-def command_ssh_pub_read_only(command: str) -> bool:
-    n = command.replace("\\", "/")
-    if not command_accesses_ssh(n):
-        return False
-    if WRITE_SHELL_CMDS.search(n) or REDIRECT_TO_SSH.search(n):
-        return False
-    stripped = re.sub(r"[^\s;'\"|]*\.ssh[^\s;'\"|]*\.pub", "", n)
-    return not command_accesses_ssh(stripped)
 
 
 def _tool_input(event: dict[str, Any]) -> dict[str, Any]:
@@ -414,193 +327,6 @@ def _file_path(event: dict[str, Any]) -> str:
     return _strip_file_uri(raw)
 
 
-def _tool_name_folded(event: dict[str, Any]) -> str:
-    return _tool_name(event).lower()
-
-
-def _tokenize_shell_args(args: str) -> list[str]:
-    tokens: list[str] = []
-    for match in re.finditer(r'"([^"]*)"|\'([^\']*)\'|(\S+)', args):
-        tokens.append(next(group for group in match.groups() if group is not None))
-    return tokens
-
-
-def _paths_after_write_cmd(segment: str) -> list[str]:
-    match = re.search(
-        r"(?:^|[;&|]\s*)"
-        r"(?:rm|rmdir|unlink|mv|cp|chmod|chown|tee|touch|mkdir|truncate|install|sed\s+-i)\s+(.*)",
-        segment,
-        re.IGNORECASE | re.DOTALL,
-    )
-    if not match:
-        return []
-    paths: list[str] = []
-    tokens = _tokenize_shell_args(match.group(1))
-    idx = 0
-    while idx < len(tokens):
-        token = tokens[idx]
-        if token == "-i" and idx + 1 < len(tokens):
-            paths.append(tokens[idx + 1])
-            idx += 2
-            continue
-        if token.startswith("-"):
-            idx += 1
-            continue
-        paths.append(token)
-        idx += 1
-    return paths
-
-
-def _quoted_literal(value: str) -> str:
-    if "'" not in value:
-        return f"'{value}'"
-    if '"' not in value:
-        return f'"{value}"'
-    return repr(value)
-
-
-def _decode_hex_literal(hex_digits: str) -> Optional[str]:
-    if len(hex_digits) % 2:
-        return None
-    try:
-        return binascii.unhexlify(hex_digits).decode("latin-1")
-    except (ValueError, binascii.Error):
-        return None
-
-
-def _decode_b64_literal(payload: str) -> Optional[str]:
-    try:
-        return base64.b64decode(payload, validate=True).decode("latin-1")
-    except (ValueError, binascii.Error):
-        return None
-
-
-def _replace_encoded_literals(command: str) -> str:
-    def hex_repl(match: re.Match[str]) -> str:
-        decoded = _decode_hex_literal(match.group(2))
-        if decoded is None:
-            return match.group(0)
-        return _quoted_literal(decoded)
-
-    def b64_repl(match: re.Match[str]) -> str:
-        decoded = _decode_b64_literal(match.group(2))
-        if decoded is None:
-            return match.group(0)
-        return _quoted_literal(decoded)
-
-    result = command
-    while True:
-        updated = _HEX_DECODE_CALL.sub(hex_repl, result)
-        updated = _BUFFER_HEX_CALL.sub(hex_repl, updated)
-        updated = _B64_DECODE_CALL.sub(b64_repl, updated)
-        updated = _BUFFER_B64_CALL.sub(b64_repl, updated)
-        if updated == result:
-            break
-        result = updated
-    return result
-
-
-def _rewrite_env_access_obfuscation(command: str) -> str:
-    result = re.sub(
-        r"getattr\s*\(\s*os\s*,\s*['\"]environ['\"]\s*\)",
-        "os.environ",
-        command,
-        flags=re.IGNORECASE,
-    )
-    return re.sub(
-        r"process\s*\[\s*['\"]env['\"]\s*\]",
-        "process.env",
-        result,
-        flags=re.IGNORECASE,
-    )
-
-
-def normalize_command_obfuscation(command: str) -> str:
-    """Fold concat strings and chr()/fromCharCode()/\\xNN so matchers see real paths."""
-    result = _replace_encoded_literals(command)
-    while True:
-        updated = _CHR_LITERAL.sub(
-            lambda m: _quoted_literal(chr(int(m.group(1), 0))), result
-        )
-        if updated == result:
-            break
-        result = updated
-    result = _HEX_ESCAPE.sub(lambda m: _quoted_literal(chr(int(m.group(1), 16))), result)
-
-    def fold_quoted_concat(match: re.Match[str]) -> str:
-        q1, s1, q2, s2 = match.group(1), match.group(2), match.group(3), match.group(4)
-        if q1 == q2:
-            return f"{q1}{s1}{s2}{q1}"
-        return match.group(0)
-
-    raw_slash_plus_quoted = re.compile(
-        r"""(?<![\w'"])/\s*(?:\+|\.)\s*(['"])([^'"]*)\1"""
-    )
-
-    while True:
-        updated = _STRING_CONCAT.sub(fold_quoted_concat, result)
-        updated = raw_slash_plus_quoted.sub(
-            lambda m: f"{m.group(1)}/{m.group(2)}{m.group(1)}", updated
-        )
-        if updated == result:
-            break
-        result = updated
-    return _rewrite_env_access_obfuscation(result)
-
-
-def _is_excluded_write_target(path: str) -> bool:
-    normalized = normalize_path(path)
-    if "://" in normalized:
-        return True
-    if normalized in _DEV_SINKS:
-        return True
-    if normalized.startswith("/dev/fd/"):
-        return True
-    return False
-
-
-def _path_inside_url(command: str, start: int) -> bool:
-    if start > 0 and command[start - 1] == ":":
-        return True
-    return start >= 3 and command[start - 3 : start] == "://"
-
-
-def _interpreter_write_paths(command: str) -> list[str]:
-    """Paths targeted by python/node/php write or unlink APIs visible in argv."""
-    if not _INTERPRETER_WRITE_API.search(command):
-        return []
-    paths: list[str] = []
-    for match in _ABSOLUTE_PATH_IN_CMD.finditer(command):
-        path = match.group(1) or match.group(2)
-        if not path:
-            continue
-        start = match.start(1) if match.group(1) else match.start(2)
-        if _path_inside_url(command, start):
-            continue
-        paths.append(path)
-    return paths
-
-
-def _shell_write_destinations(command: str) -> list[str]:
-    normalized = normalize_command_obfuscation(command.replace("\\", "/"))
-    paths: list[str] = []
-    for match in SHELL_REDIRECT_PATH.finditer(normalized):
-        for group in match.groups():
-            if group and not _is_excluded_write_target(group):
-                paths.append(group)
-    for segment in re.split(r"[;&|]", normalized):
-        segment = segment.strip()
-        if not SHELL_WRITE_CMD.search(segment):
-            continue
-        for path in _paths_after_write_cmd(segment):
-            if not _is_excluded_write_target(path):
-                paths.append(path)
-    for path in _interpreter_write_paths(normalized):
-        if not _is_excluded_write_target(path):
-            paths.append(path)
-    return paths
-
-
 def normalize_hook_name(event: dict[str, Any]) -> str:
     for key in ("hook_event_name", "hook", "event"):
         val = event.get(key)
@@ -630,7 +356,7 @@ def dispatch_pretooluse(event: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         shaped["command"] = str(ti.get("command") or "")
         return "beforeShellExecution", shaped
 
-    if _tool_name_folded(event) in ("read", "grep", "glob"):
+    if tool.lower() in ("read", "grep", "glob"):
         path = _file_path(event)
         if path:
             shaped["file_path"] = path
@@ -694,14 +420,11 @@ def _intention(
     overrides = cat_def.get("intention_overrides", {})
     if subtype and subtype in overrides:
         return overrides[subtype]
-    if subtype and subtype in cat_def.get("message_templates", {}):
-        # ponytail: subtype keys in message_templates are legacy; intention_overrides preferred
-        pass
     return str(cat_def.get("intention", f"perform {category.replace('_', ' ')}"))
 
 
-def _shell_command(event: dict[str, Any]) -> str:
-    return normalize_command_obfuscation(str(event.get("command") or ""))
+def _shell_excluded(command: str, cat_def: dict[str, Any]) -> bool:
+    return _regex_any(command, cat_def.get("shell_exclude_patterns", []))
 
 
 def match_shell_regex(
@@ -709,10 +432,10 @@ def match_shell_regex(
 ) -> Optional[tuple[str, str]]:
     if hook != "beforeShellExecution" or "command" not in event:
         return None
-    patterns = cat_def.get("shell_patterns", [])
-    command = _shell_command(event)
-    if category == "network_egress" and ".ssh/" in command.replace("\\", "/"):
+    command = str(event.get("command") or "")
+    if _shell_excluded(command, cat_def):
         return None
+    patterns = cat_def.get("shell_patterns", [])
     if _regex_any(command, patterns):
         return (category, command[:80])
     return None
@@ -722,18 +445,30 @@ def match_destructive_fs(
     cat_def: dict[str, Any], event: dict[str, Any], hook: str, category: str
 ) -> Optional[tuple[str, str]]:
     if hook == "beforeShellExecution" and "command" in event:
-        command = _shell_command(event)
-        patterns = cat_def.get("shell_patterns", [])
-        if _regex_any(command, patterns):
+        command = str(event.get("command") or "")
+        if _regex_any(command, cat_def.get("shell_patterns", [])):
             return (category, command[:80])
+
+        workspace_patterns = cat_def.get("workspace_shell_patterns", [])
         prefix = cat_def.get("workspace_prefix", "/repos/")
-        if _INTERPRETER_UNLINK_API.search(command):
-            for path in _interpreter_write_paths(command):
+        if workspace_patterns and _regex_any(command, workspace_patterns):
+            for path in shell_write_destinations(command):
                 if normalize_path(path).startswith(prefix):
-                    return ("delete", path)
-            if not _interpreter_write_paths(command):
-                return (category, command[:80])
+                    return (category, command[:80])
+            return None
+
+        if _INTERPRETER_WRITE_API.search(command):
+            paths = interpreter_write_paths(command)
+            if paths:
+                workspace_paths = [
+                    p for p in paths if normalize_path(p).startswith(prefix)
+                ]
+                if workspace_paths:
+                    return ("delete", workspace_paths[0])
+                return None
+            return (category, command[:80])
         return None
+
     if hook != "preToolUse":
         return None
     tool = _tool_name(event)
@@ -773,42 +508,43 @@ def _path_is_write_outside(
     return not normalized.replace("\\", "/").startswith(prefix)
 
 
-def match_write_prefix(
+def match_prefix(
     cat_def: dict[str, Any], event: dict[str, Any], hook: str, category: str
 ) -> Optional[tuple[str, str]]:
-    prefix = cat_def.get("write_path_exclude_prefix", "/repos/")
-    allow_patterns = cat_def.get("write_path_allow_patterns", [])
+    direction = cat_def.get("direction", "write")
 
-    if hook == "beforeShellExecution" and "command" in event:
-        command = _shell_command(event)
-        if _TEMPFILE_WRITE_API.search(command):
-            return ("write_outside", "tempfile default /tmp")
-        outside = [
-            path
-            for path in _shell_write_destinations(command)
-            if _path_is_write_outside(path, prefix=prefix, allow_patterns=allow_patterns)
-        ]
-        if outside:
-            return ("write_outside", outside[0])
+    if direction == "write":
+        prefix = cat_def.get("write_path_exclude_prefix", "/repos/")
+        allow_patterns = cat_def.get("write_path_allow_patterns", [])
+        write_tools = cat_def.get("write_tools", ["Write", "StrReplace", "Delete"])
+
+        if hook == "beforeShellExecution" and "command" in event:
+            command = str(event.get("command") or "")
+            if _TEMPFILE_WRITE_API.search(command):
+                return ("write_outside", "tempfile default /tmp")
+            outside = [
+                path
+                for path in shell_write_destinations(command)
+                if _path_is_write_outside(
+                    path, prefix=prefix, allow_patterns=allow_patterns
+                )
+            ]
+            if outside:
+                return ("write_outside", outside[0])
+            return None
+
+        if hook != "preToolUse":
+            return None
+        tool = _tool_name(event)
+        if tool not in write_tools:
+            return None
+        path = _file_path(event)
+        if path and _path_is_write_outside(
+            path, prefix=prefix, allow_patterns=allow_patterns
+        ):
+            return ("write_outside", path)
         return None
 
-    if hook != "preToolUse":
-        return None
-    tool = _tool_name(event)
-    write_tools = cat_def.get("write_tools", ["Write", "StrReplace", "Delete"])
-    if tool not in write_tools:
-        return None
-    path = _file_path(event)
-    if path and _path_is_write_outside(
-        path, prefix=prefix, allow_patterns=allow_patterns
-    ):
-        return ("write_outside", path)
-    return None
-
-
-def match_read_prefix(
-    cat_def: dict[str, Any], event: dict[str, Any], hook: str, category: str
-) -> Optional[tuple[str, str]]:
     prefix = cat_def.get("read_path_include_prefix", "/repos/")
     read_tools = cat_def.get("read_tools", ["Read", "Grep"])
 
@@ -829,6 +565,16 @@ def match_read_prefix(
     return None
 
 
+def _path_subtype(category: str) -> str:
+    if category == "guard_policy":
+        return "policy"
+    if category == "ssh_dir":
+        return "ssh"
+    if category == "agent_config":
+        return "agent_config"
+    return "credential"
+
+
 def match_path(
     cat_def: dict[str, Any],
     event: dict[str, Any],
@@ -843,44 +589,34 @@ def match_path(
     read_tools = cat_def.get("read_tools", ["Read", "Grep"])
     pub_suffixes = cat_def.get("read_allow_suffixes", [])
     shell_allow_pub = cat_def.get("shell_allow_pub_read", False)
+    match_writes = cat_def.get("match_writes", True)
+    match_reads = cat_def.get("match_reads", True)
 
     def path_hit(p: str) -> bool:
-        return bool(p) and path_matches_any(p, patterns) and not path_excluded(p, exclude)
+        return bool(p) and path_matches_any(p, patterns) and not path_matches_any(p, exclude)
 
     if hook == "beforeReadFile" and path and path_hit(path):
+        if not match_reads:
+            return None
         if pub_suffixes and _path_allowed_suffix(path, pub_suffixes):
             return None
-        if category == "agent_config":
-            return None
-        subtype = (
-            "policy"
-            if category == "guard_policy"
-            else "ssh"
-            if category == "ssh_dir"
-            else "credential"
-        )
-        return (subtype, path)
+        return (_path_subtype(category), path)
 
     if hook == "preToolUse" and path and path_hit(path):
-        if category == "guard_policy":
-            return ("policy", path)
-        if category == "agent_config":
-            if tool in write_tools:
-                return ("agent_config", path)
-            return None
-        if tool in write_tools:
-            return ("ssh" if category == "ssh_dir" else "credential", path)
-        if not tool or tool in read_tools:
+        if tool in write_tools and match_writes:
+            return (_path_subtype(category), path)
+        if (not tool or tool in read_tools) and match_reads:
             if pub_suffixes and _path_allowed_suffix(path, pub_suffixes):
                 return None
-            subtype = "ssh" if category == "ssh_dir" else "credential"
-            return (subtype, path)
+            return (_path_subtype(category), path)
         if tool in cat_def.get("tools", []):
             return ("credential", path)
         return None
 
     if hook == "beforeShellExecution" and "command" in event:
-        cmd = _shell_command(event)
+        cmd = str(event.get("command") or "")
+        if _shell_excluded(cmd, cat_def):
+            return None
         if category == "guard_policy":
             if command_writes_policy_path(cmd, cat_def):
                 return ("policy", "shell write to guard policy")
@@ -888,14 +624,12 @@ def match_path(
                 return ("policy", "shell read of guard policy")
             return None
         if category == "agent_config":
-            if command_writes_policy_path(cmd, cat_def):
+            if match_writes and command_writes_policy_path(cmd, cat_def):
                 return ("agent_config", "shell write to agent config")
-            if command_reads_policy_path(cmd, cat_def):
+            if match_reads and command_reads_policy_path(cmd, cat_def):
                 return ("agent_config", "shell read of agent config")
             return None
         if category == "ssh_dir":
-            if re.search(r"\bln\s+-[a-zA-Z]*s\b", cmd):
-                return None
             if command_accesses_ssh(cmd) and not (
                 shell_allow_pub and command_ssh_pub_read_only(cmd)
             ):
@@ -921,7 +655,7 @@ def match_secrets(
                 return hit
     elif hook == "preToolUse":
         path = _file_path(event)
-        tool = _tool_name_folded(event)
+        tool = _tool_name(event).lower()
         if tool and tool not in allowed_tools:
             return None
         if path:
@@ -929,7 +663,7 @@ def match_secrets(
             if hit:
                 return hit
     if hook == "beforeShellExecution" and "command" in event:
-        hit = detect_secret_values_shell(_shell_command(event), cat_def)
+        hit = detect_secret_values_shell(str(event.get("command") or ""), cat_def)
         if hit:
             return hit
     return None
@@ -940,8 +674,7 @@ MATCHERS = {
     "destructive_fs": match_destructive_fs,
     "tool_name": match_tool_name,
     "path": match_path,
-    "write_prefix": match_write_prefix,
-    "read_prefix": match_read_prefix,
+    "prefix": match_prefix,
     "secrets": match_secrets,
 }
 
@@ -963,23 +696,35 @@ def _action_to_permission(
     action: str,
     hook: str,
     ask_unsupported_hooks: frozenset[str],
-    *,
-    defer_ask: bool = False,
-    original_hook: str = "",
 ) -> str:
     if action == "allow":
         return "allow"
     if action == "ask":
-        if (
-            defer_ask
-            and original_hook == "preToolUse"
-            and hook in ASK_DEFERRAL_TARGET_HOOKS
-        ):
-            return "allow"
         if hook in ask_unsupported_hooks:
             return "deny"
         return "ask"
     return "deny"
+
+
+def apply_ask_deferral(
+    result: GuardResult,
+    original_hook: str,
+    effective_hook: str,
+) -> GuardResult:
+    """preToolUse remaps to beforeShell/beforeMCP; defer ask to allow on those hooks."""
+    if (
+        result.permission == "ask"
+        and original_hook == "preToolUse"
+        and effective_hook in ASK_DEFERRAL_TARGET_HOOKS
+    ):
+        return GuardResult(
+            permission="allow",
+            category=result.category,
+            subtype=result.subtype,
+            notify=result.notify,
+            matched_detail=result.matched_detail,
+        )
+    return result
 
 
 def _build_message(
@@ -1028,6 +773,14 @@ def write_audit(
         fh.write(line)
 
 
+def _pick_hit(hits: list[Hit]) -> Hit:
+    best = max(PERMISSION_RANK.get(h.permission, 0) for h in hits)
+    return min(
+        (h for h in hits if PERMISSION_RANK.get(h.permission, 0) == best),
+        key=lambda h: h.order_idx,
+    )
+
+
 def evaluate(
     event: dict[str, Any],
     *,
@@ -1035,7 +788,6 @@ def evaluate(
     overrides: Optional[dict[str, Any]] = None,
     config_root: Optional[Path] = None,
     original_hook: Optional[str] = None,
-    defer_ask: bool = False,
 ) -> GuardResult:
     root = config_root or config_root_default()
     security = load_security_config(root)
@@ -1061,12 +813,15 @@ def evaluate(
         return GuardResult(permission="allow")
 
     if event.get("command"):
-        event = {**event, "command": normalize_command_obfuscation(str(event["command"]))}
+        event = {
+            **event,
+            "command": normalize_command_obfuscation(str(event["command"])),
+        }
 
     merged = merge_category_settings(profile, user_overrides)
     tool = _tool_name(event)
 
-    hits: list[tuple[int, str, str, str, str, bool, dict[str, Any]]] = []
+    hits: list[Hit] = []
     for order_idx, category in enumerate(match_order):
         settings = merged.get(category)
         if not settings or not settings.get("enabled", False):
@@ -1082,36 +837,29 @@ def evaluate(
         if action == "block":
             notify = True
 
-        permission = _action_to_permission(
-            action,
-            hook,
-            ask_unsupported,
-            defer_ask=defer_ask,
-            original_hook=orig,
-        )
+        permission = _action_to_permission(action, hook, ask_unsupported)
         hits.append(
-            (order_idx, category, subtype, detail, permission, notify, cat_def)
+            Hit(
+                order_idx=order_idx,
+                category=category,
+                subtype=subtype,
+                detail=detail,
+                permission=permission,
+                notify=notify,
+                cat_def=cat_def,
+            )
         )
 
     if not hits:
         return GuardResult(permission="allow")
 
-    best_rank = max(PERMISSION_RANK.get(row[4], 0) for row in hits)
-    tier = [row for row in hits if PERMISSION_RANK.get(row[4], 0) == best_rank]
-    if any(row[1] == "destructive_fs" for row in tier):
-        write_outside = [row for row in tier if row[1] == "file_write_outside_repos"]
-        if write_outside:
-            _, category, subtype, detail, permission, notify, cat_def = min(
-                write_outside, key=lambda row: row[0]
-            )
-        else:
-            _, category, subtype, detail, permission, notify, cat_def = min(
-                tier, key=lambda row: row[0]
-            )
-    else:
-        _, category, subtype, detail, permission, notify, cat_def = min(
-            tier, key=lambda row: row[0]
-        )
+    winner = _pick_hit(hits)
+    category = winner.category
+    subtype = winner.subtype
+    detail = winner.detail
+    permission = winner.permission
+    notify = winner.notify
+    cat_def = winner.cat_def
     action = merged[category].get("action", "block")
 
     user_message = None
@@ -1158,44 +906,32 @@ def evaluate_audit(
 ) -> AuditResult:
     root = config_root or config_root_default()
     try:
-        categories = load_categories(root)
+        secret_def = load_categories(root).get("secret_values", {})
     except (OSError, json.JSONDecodeError):
         return AuditResult()
-
-    secret_def = categories.get("secret_values", {})
     keywords = secret_def.get("env_var_name_keywords", [])
-
     path = str(event.get("file_path") or event.get("path") or "")
     output = str(event.get("output") or event.get("result") or event.get("content") or "")
-
     detail: Optional[str] = None
     subtype: Optional[str] = None
-
     if path:
         hit = detect_secret_values_path(path, secret_def, path_matches_any)
         if hit:
             subtype, detail = hit
-
     if not detail and output:
         var = _scan_output_for_secrets(output, keywords)
         if var:
             subtype, detail = "env_var", var
         elif re.search(r"\.env", output) and re.search(r"=", output):
             subtype, detail = "env_file", ".env content in output"
-
     if not detail:
         return AuditResult(audit_log_path=AUDIT_LOG)
-
     write_audit("secret_values", subtype, detail, "audit_warn")
     msg = (
         f"Catacombs security audit: possible secret exposure detected "
         f"({subtype}: {detail}). Review the agent output — values are not logged."
     )
-    return AuditResult(
-        additional_context=msg,
-        user_message=msg,
-        audit_log_path=AUDIT_LOG,
-    )
+    return AuditResult(additional_context=msg, user_message=msg, audit_log_path=AUDIT_LOG)
 
 
 def guard_main() -> int:
@@ -1222,23 +958,13 @@ def guard_main() -> int:
     original_hook = hook or "preToolUse"
     eval_event = event
     effective_hook = original_hook
-    defer_ask = False
 
     if original_hook == "preToolUse":
         effective_hook, eval_event = dispatch_pretooluse(event)
         eval_event["hook"] = effective_hook
-        defer_ask = True
-    else:
-        eval_event["hook"] = original_hook
 
-    if effective_hook == "beforeShellExecution" and eval_event.get("command"):
-        eval_event["command"] = normalize_command_obfuscation(eval_event["command"])
-
-    result = evaluate(
-        eval_event,
-        original_hook=original_hook,
-        defer_ask=defer_ask,
-    )
+    result = evaluate(eval_event, original_hook=original_hook)
+    result = apply_ask_deferral(result, original_hook, effective_hook)
     print(json.dumps(result.to_json()))
     return 0
 

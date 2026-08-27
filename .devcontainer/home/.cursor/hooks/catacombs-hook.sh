@@ -9,7 +9,10 @@ if [ -z "$MODE" ]; then
 fi
 
 SCRIPT=""
-for p in .cursor/hooks/catacombs_guard.py ~/.cursor/hooks/catacombs_guard.py; do
+for p in \
+  "${HOME}/.cursor/hooks/catacombs_guard.py" \
+  "${CURSOR_PROJECT_DIR:-}/.devcontainer/home/.cursor/hooks/catacombs_guard.py" \
+  ".cursor/hooks/catacombs_guard.py"; do
   if [ -f "$p" ]; then
     SCRIPT="$p"
     break
