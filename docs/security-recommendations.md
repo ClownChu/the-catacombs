@@ -17,7 +17,34 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 ---
 
+## Guard profile resolution matrix
+
+Each vulnerability maps to a **minimum guard profile** for hook-level mitigation, plus **residual host steps** when hooks alone are insufficient. Full KV details: [known-vulnerabilities.md](./known-vulnerabilities.md).
+
+| ID | `low` | `medium` | `high` | `extreme` | `you-shall-not-pass` | Still needs host/infra |
+|----|-------|----------|--------|-----------|----------------------|------------------------|
+| KV-01 | Ask on sensitive reads; block writes outside `/repos` | Same as low | Block creds + re-enabled write guard | Same as high | **Block reads outside `/repos`** | Narrow `repos/` mount; dedicated VM |
+| KV-02 | Ask SSH/creds | Ask | Block | Block | Block | Scoped deploy key; read-only `.ssh` mount |
+| KV-03 | Ask network | Ask | Block HTTP tools + expanded egress | Block | **Block all matched egress incl. DB clients** | Host firewall; drop `host.docker.internal` |
+| KV-04 | Ask on agent config writes | Ask | Block agent config | Block | Block | Read-only `.cursor/rules` mount; branch protection |
+| KV-05 | Ask `ln -s` | Ask | Ask | Ask | **Block symlink shell** | `find repos/ -type l`; no escaping symlinks |
+| KV-06 | — | — | — | — | — | Keep gVisor; no `--cap-add=all` |
+| KV-07 | Ask | Ask | Block | Block | Block | Optional egress firewall (Layer 3) |
+| KV-08 | Ask git remote | Ask | Block expanded git/gh | Block | Block | Scoped PAT/deploy key; branch protection |
+| KV-09 | — | — | — | — | — | Keep `cursor.chat.autoRun: false` |
+
+**Honest residual at `you-shall-not-pass`** (hooks cannot claim full VM isolation):
+
+- Read/write anywhere under `/repos/` (by design)
+- Existing symlink targets already on disk (host audit)
+- `cursor.chat.autoRun: true` if user opts in
+- Programmatic network bypass (`python -c` / `node -e` with sockets) — documented hook ceiling; blocking all interpreted `-c`/`-e` would break normal dev
+
+---
+
 ## KV-02: SSH private key exposure
+
+**Minimum guard profile:** `high` (blocks `ssh_dir`, `credential_access`, shell `ssh` via `network_egress`). Full hook coverage: same.
 
 ### Recommendations
 
@@ -43,6 +70,8 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 ## KV-03: Host network via `host.docker.internal`
 
+**Minimum guard profile:** `you-shall-not-pass` (blocks `host.docker.internal`, DB clients, `git` remote ops). `high` blocks common HTTP/package egress but not all DB paths.
+
 ### Recommendations
 
 1. **Bind host services to `127.0.0.1` only** where possible. `host.docker.internal` resolves to the host gateway; services listening only on localhost may still be reachable depending on Docker networking — treat published ports as agent-accessible.
@@ -58,6 +87,8 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 ---
 
 ## KV-01: Host filesystem via bind mounts
+
+**Minimum guard profile:** `you-shall-not-pass` (`file_read_outside_repos`). Writes outside `/repos` blocked at every profile via `file_write_outside_repos`.
 
 ### Recommendations
 
@@ -80,6 +111,8 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 ## KV-04: Agent config persistence
 
+**Minimum guard profile:** `high` (`agent_config` blocks writes to rules, MCP, settings, `.agents/`, `skills-lock.json`). At `low`/`medium`, shell edits ask; IDE writes deny (no ask on `preToolUse`).
+
 ### Recommendations
 
 1. **Mount `.cursor/rules` read-only** (see KV-01). Allow writes only to project code under `repos/`, not policy files.
@@ -95,6 +128,8 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 ---
 
 ## KV-05: Symlink traversal under `repos/`
+
+**Minimum guard profile:** `you-shall-not-pass` (`symlink_escape` blocks shell `ln -s`). Lower profiles ask before symlink creation.
 
 ### Recommendations
 
@@ -137,7 +172,33 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 | `beforeReadFile` | Direct file reads (path only — content never logged) |
 | `postToolUse` / `afterShellExecution` | Audit successful reads; warn on secret leakage |
 
-All pre-execution hooks use `failClosed: true`. Default profile: **medium**. On `low`/`medium`, most categories **ask** on shell; `guard_policy` (read+write), `container_escape`, and `file_write_outside_repos` **block + notify** at every level. Every `action: block` notifies the user with operation, target, and inferred intention.
+All pre-execution hooks use `failClosed: true`. Default profile: **medium**. On `low`/`medium`, matched shell and MCP categories **ask** (classifier-gated — not every command); `guard_policy`, `container_escape`, and `file_write_outside_repos` **block + notify** at every level. Every `action: block` notifies the user with operation, target, and inferred intention.
+
+### Profiles
+
+| Profile | Summary |
+|---------|---------|
+| `low` | Ask before most shell actions; hard-block guard policy, container escape, writes outside `/repos`; ask on agent config writes (shell) and symlinks |
+| `medium` (default) | Same ask-default model as `low`; shell/MCP ask only when a category classifier matches |
+| `high` | Blocks network egress, HTTP tools, credentials, secrets, destructive commands, and **agent config writes**; re-enabled `file_write_outside_repos` |
+| `extreme` | Same blocks as `high`; asks before subagent spawn |
+| `you-shall-not-pass` | Maximum hook enforcement: blocks network (incl. DB clients, `git`/`gh`), subagents, agent config, reads outside `/repos`, symlink creation, writes outside `/repos` |
+
+Select profile in `.devcontainer/home/.cursor/catacombs-security.json` (`active_profile`). See the [guard profile resolution matrix](#guard-profile-resolution-matrix) for per-KV mapping.
+
+### Categories (selected)
+
+| Category | Matcher | Guards |
+|----------|---------|--------|
+| `guard_policy` | path | Hooks, `catacombs-security.json`, profiles — block at every level |
+| `agent_config` | path | `.agents/`, `.cursor/rules/`, `mcp.json`, `settings.json`, `skills-lock.json` |
+| `file_read_outside_repos` | read_prefix | Reads outside `/repos/` — `you-shall-not-pass` only |
+| `file_write_outside_repos` | write_prefix | Writes outside `/repos/` — all profiles |
+| `symlink_escape` | shell_regex | Shell `ln -s` — block at `you-shall-not-pass` |
+| `network_egress` | shell_regex | `curl`, `wget`, `ssh`, package managers, `host.docker.internal`, DB clients, `git push`/`pull`/`fetch`, `gh` |
+| `secret_values` | secrets | `.env` files, sensitive env vars — deny reads at all levels |
+
+**`you-shall-not-pass` = maximum hook enforcement.** Residual gaps (workspace access under `/repos/`, programmatic sockets, existing symlinks, `autoRun`) are listed in the [matrix above](#guard-profile-resolution-matrix).
 
 ### Read-only overlay mounts (recommended)
 
@@ -150,7 +211,7 @@ Guard config is shipped read-only via overlay mounts in `devcontainer.json` (aft
 "source=${localWorkspaceFolder}/.devcontainer/home/.cursor/catacombs-security.json,target=/home/agent/.cursor/catacombs-security.json,type=bind,readonly"
 ```
 
-Agents may still edit `.cursor/rules`, `.cursor/mcp.json`, and other writable paths under the general `.cursor` mount.
+Agents may still edit `.cursor/rules`, `.cursor/mcp.json`, and `.agents/` unless `agent_config` is enabled at `high`+ or the paths are mounted read-only on the host.
 
 ### Tests
 
@@ -234,9 +295,11 @@ Layer 3 (host):      egress firewall  — network deny/allowlist                
 
 ## KV-07: Unrestricted outbound network
 
+**Minimum guard profile:** `high` (`network_egress`, `http_tools`). Full DB/git/gh coverage: `you-shall-not-pass`.
+
 ### Recommendations
 
-1. **Use the security guard** — set `active_profile` to `high` or `extreme` in `.devcontainer/home/.cursor/catacombs-security.json` to block outbound network commands.
+1. **Use the security guard** — set `active_profile` to `high` for broad egress blocks, or `you-shall-not-pass` for maximum hook coverage (see [matrix](#guard-profile-resolution-matrix)).
 
 2. **Run on an isolated network** (VM, cloud dev box) without access to production VPCs.
 
@@ -249,6 +312,8 @@ Layer 3 (host):      egress firewall  — network deny/allowlist                
 ---
 
 ## KV-08: Remote repo and API access
+
+**Minimum guard profile:** `you-shall-not-pass` (blocks `git push`/`pull`/`fetch`, broad `gh`). `high` blocks package managers and HTTP tools.
 
 ### Recommendations
 
@@ -265,6 +330,8 @@ Layer 3 (host):      egress firewall  — network deny/allowlist                
 ---
 
 ## KV-09: Auto-run agent commands
+
+**Minimum guard profile:** N/A — not governed by hooks. Keep `cursor.chat.autoRun: false`.
 
 ### Recommendations
 
@@ -290,7 +357,7 @@ A practical “safer catacombs” setup:
 - [ ] Host DBs and admin UIs not exposed on bridge-accessible ports
 - [x] `--cap-add=all` removed from `runArgs` (already the default)
 - [ ] `cursor.chat.autoRun` left disabled (default) or only enabled for trusted sessions
-- [ ] Security guard profile set (`medium` or stricter) in `.devcontainer/home/.cursor/catacombs-security.json`
+- [ ] Security guard profile set — `medium` (default), `high`, or `you-shall-not-pass` for maximum hook enforcement (see [profile matrix](#guard-profile-resolution-matrix))
 - [ ] Guard hooks + profiles mounted read-only via `.devcontainer/home/.cursor/` overlays (shipped in `devcontainer.json`)
 - [ ] Catacombs runs on a dedicated dev machine or VM, not your daily driver with full keys
 
@@ -298,12 +365,13 @@ A practical “safer catacombs” setup:
 
 ## Trade-offs
 
-Tighter security reduces agent autonomy and convenience. The catacombs design intentionally trades **some** host exposure for productivity (git over SSH, host DB access, editable rules). Choose a profile that matches your data classification:
+Tighter security reduces agent autonomy and convenience. The catacombs design intentionally trades **some** host exposure for productivity (git over SSH, host DB access, editable rules). Combine a **guard profile** with **host hardening** to match your data classification:
 
-| Profile | Mounts | Keys | `host.docker.internal` | Auto-run |
-|---------|--------|------|------------------------|----------|
-| **Dev (default)** | Full | Linked personal key | Enabled | false |
-| **Team** | `repos/` + read-only rules | Per-repo deploy key | Enabled, firewalled | false |
-| **Paranoid** | Single project subfolder | None (HTTPS read-only) | Disabled | false |
+| Setup | Guard profile | Host hardening |
+|-------|---------------|----------------|
+| **Dev (default)** | `medium` | Full mounts; linked personal key; `host.docker.internal` enabled; `autoRun: false` |
+| **Team** | `high` | Read-only rules; per-repo deploy key; firewalled host DB ports |
+| **Maximum hooks** | `you-shall-not-pass` | Above + narrow `repos/` mount; optional egress firewall; scoped credentials |
+| **Paranoid** | `you-shall-not-pass` | Single project subfolder; no SSH key (HTTPS read-only); drop `host.docker.internal` |
 
-Document which profile you use in your team onboarding so expectations match the actual threat model.
+Document which profile you use in team onboarding. Residual risks at `you-shall-not-pass` are listed in the [guard profile resolution matrix](#guard-profile-resolution-matrix).

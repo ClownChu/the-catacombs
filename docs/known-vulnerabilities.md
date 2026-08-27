@@ -6,19 +6,19 @@ Threat model for **The Catacombs**: a Cursor agent runs with shell access inside
 
 ## Summary
 
-| ID | Vulnerability | Severity | Escape required? |
-|----|---------------|----------|------------------|
-| [KV-01](#kv-01-host-filesystem-via-bind-mounts) | Host filesystem access via bind mounts | High | No |
-| [KV-02](#kv-02-ssh-private-key-exposure) | SSH private key exposure | Critical | No |
-| [KV-03](#kv-03-host-network-via-hostdockerinternal) | Host network access via `host.docker.internal` | High | No |
-| [KV-04](#kv-04-agent-config-persistence) | Agent config persistence (rules, skills, MCP) | Medium | No |
-| [KV-05](#kv-05-symlink-traversal-under-repos) | Symlink traversal under `repos/` | Medium | No |
-| [KV-06](#kv-06-broad-linux-capabilities) | Broad Linux capabilities (`--cap-add=all`) | Low (mitigated) | Yes (kernel/gVisor) |
-| [KV-07](#kv-07-unrestricted-outbound-network) | Unrestricted outbound network | Medium | No |
-| [KV-08](#kv-08-remote-repo-and-api-access) | Remote repo and API access (`git`, `gh`, `npm`) | Medium | No |
-| [KV-09](#kv-09-auto-run-agent-commands) | Auto-run agent commands (opt-in) | Low–Medium | No |
+| ID | Vulnerability | Severity | Escape required? | Min guard profile | Residual risk at `you-shall-not-pass` |
+|----|---------------|----------|------------------|-------------------|---------------------------------------|
+| [KV-01](#kv-01-host-filesystem-via-bind-mounts) | Host filesystem access via bind mounts | High | No | `you-shall-not-pass` | Read/write anywhere under `/repos/` |
+| [KV-02](#kv-02-ssh-private-key-exposure) | SSH private key exposure | Critical | No | `high` | Key still on disk if user approves at low/medium |
+| [KV-03](#kv-03-host-network-via-hostdockerinternal) | Host network access via `host.docker.internal` | High | No | `you-shall-not-pass` | Programmatic socket bypass (`python -c`, `node -e`) |
+| [KV-04](#kv-04-agent-config-persistence) | Agent config persistence (rules, skills, MCP) | Medium | No | `high` | Read-only host mount; branch protection |
+| [KV-05](#kv-05-symlink-traversal-under-repos) | Symlink traversal under `repos/` | Medium | No | `you-shall-not-pass` | Existing symlinks on disk (host audit) |
+| [KV-06](#kv-06-broad-linux-capabilities) | Broad Linux capabilities (`--cap-add=all`) | Low (mitigated) | Yes (kernel/gVisor) | — (infra) | Default capabilities + gVisor boundary |
+| [KV-07](#kv-07-unrestricted-outbound-network) | Unrestricted outbound network | Medium | No | `high` | Layer-3 egress firewall optional |
+| [KV-08](#kv-08-remote-repo-and-api-access) | Remote repo and API access (`git`, `gh`, `npm`) | Medium | No | `you-shall-not-pass` | Scoped PAT/deploy key; branch protection |
+| [KV-09](#kv-09-auto-run-agent-commands) | Auto-run agent commands (opt-in) | Low–Medium | No | — (not hook-governed) | User opts into `cursor.chat.autoRun: true` |
 
-See [security-recommendations.md](./security-recommendations.md) for mitigations.
+See [security-recommendations.md](./security-recommendations.md) for mitigations and the full [guard profile resolution matrix](./security-recommendations.md#guard-profile-resolution-matrix).
 
 ---
 
@@ -41,6 +41,8 @@ Repo-root files such as `README.md`, `init.sh`, and `.devcontainer/Dockerfile` a
 
 **Impact:** Data loss, credential planting, policy bypass, supply-chain changes to future agent runs.
 
+**Guard mitigation:** `file_read_outside_repos` blocks reads outside `/repos/` at `you-shall-not-pass` only. `file_write_outside_repos` blocks writes outside `/repos/` at every profile. Reads and writes inside `/repos/` remain allowed by design.
+
 ---
 
 ## KV-02: SSH private key exposure
@@ -55,6 +57,8 @@ Repo-root files such as `README.md`, `init.sh`, and `.devcontainer/Dockerfile` a
 - Use deploy keys or org-wide access beyond the current workspace
 
 **Impact:** Remote code execution on servers, repository takeover, lateral movement to production systems. If the same key is used for host SSH, loopback access may reach the host itself.
+
+**Guard mitigation:** `ssh_dir` + `credential_access` block at `high` and above; `network_egress` blocks shell `ssh` at `high`+. At `low`/`medium`, user approval can still allow key use.
 
 ---
 
@@ -73,6 +77,8 @@ Typical targets:
 
 **Impact:** Read/modify production or dev data, trigger host-side file writes through application APIs, exploit unauthenticated admin endpoints.
 
+**Guard mitigation:** `network_egress` blocks `host.docker.internal`, DB clients (`psql`, `mysql`, etc.), and `git push`/`pull`/`fetch` at `you-shall-not-pass`. At `high`, HTTP tools and common egress commands are blocked but DB clients may still match until `you-shall-not-pass`.
+
 ---
 
 ## KV-04: Agent config persistence
@@ -88,7 +94,11 @@ Because `.cursor/` (rules, MCP, settings) and `.agents/` are mounted writable, a
 
 Guard artifacts (`hooks.json`, `hooks/`, `catacombs-security.json`, `catacombs-security/`) are overlay-mounted read-only and blocked from agent read/write by hooks at every profile.
 
+The `agent_config` category guards `.agents/`, `.cursor/rules/`, `.cursor/mcp.json`, `.cursor/settings.json`, and `.skills-lock.json`. At `low`/`medium`, writes prompt via shell but IDE write tools deny (hooks cannot ask on `preToolUse`). At `high` and above, writes are blocked outright.
+
 **Impact:** Long-lived compromise without repeating the initial prompt; gradual policy erosion that may not be obvious in a diff review.
+
+**Guard mitigation:** `agent_config` — minimum profile `high` for full write blocking; shell edits ask at `low`/`medium`.
 
 ---
 
@@ -100,6 +110,8 @@ Guard artifacts (`hooks.json`, `hooks/`, `catacombs-security.json`, `catacombs-s
 Workspaces live under `repos/`, but symlinks inside that tree are not confined. A symlink such as `repos/evil -> ../../.ssh` or `repos/foo -> /home/user/Documents` may cause tools (editors, `cp`, `rm`, build scripts) to read or write paths outside the intended workspace boundary.
 
 **Impact:** Access to host files not otherwise mounted into the container.
+
+**Guard mitigation:** `symlink_escape` blocks shell `ln -s` at `you-shall-not-pass`; asks at lower profiles. Does not remove or follow existing symlinks on disk.
 
 ---
 
@@ -125,6 +137,8 @@ There is no egress firewall. The agent can reach the public internet for package
 
 **Impact:** Data exfiltration (source code, env files, keys found in `repos/`), download of second-stage payloads.
 
+**Guard mitigation:** `network_egress` + `http_tools` block at `high` and above. Full DB-client and `git`/`gh` coverage requires `you-shall-not-pass`. Programmatic sockets (`python -c`, `node -e`) are a known hook ceiling.
+
 ---
 
 ## KV-08: Remote repo and API access
@@ -136,6 +150,8 @@ Pre-installed tooling includes `git`, `gh`, `npm`, `npx`, `composer`, `pipx`, `u
 
 **Impact:** Supply-chain attacks, unauthorized releases, social-engineering via PRs opened in the agent's name.
 
+**Guard mitigation:** `network_egress` blocks `git push`/`pull`/`fetch` and broad `gh` at `you-shall-not-pass`. Package managers blocked at `high`+. Combine with scoped credentials on the host.
+
 ---
 
 ## KV-09: Auto-run agent commands
@@ -146,6 +162,21 @@ Pre-installed tooling includes `git`, `gh`, `npm`, `npx`, `composer`, `pipx`, `u
 `devcontainer.json` defaults to `"cursor.chat.autoRun": false`, so the agent asks before running shell commands. If you opt in with `"cursor.chat.autoRun": true` (in `devcontainer.json` or Cursor settings), the agent may execute shell commands without per-step user approval.
 
 **Impact:** When enabled, faster exploitation of any other vulnerability listed here; mistakes cause immediate filesystem or network effects rather than pausing for review.
+
+**Guard mitigation:** None — the security guard does not control `cursor.chat.autoRun`. Keep the default `false` in `devcontainer.json`.
+
+---
+
+## KV-10: Shell argv obfuscation ceiling
+
+**Severity:** Low–Medium  
+**Container escape required:** No
+
+The guard classifies shell commands from **argv text only** — it does not execute Python/JS/PHP, decode base64, or evaluate computed paths. `normalize_command_obfuscation()` folds adjacent string concatenation (`'a'+'b'`), `chr()` / `String.fromCharCode()`, and `\xNN` hex escapes so split-string and `chr(47)+'tmp'` probes hit existing matchers.
+
+**Residual bypasses:** base64-wrapped payloads, fully computed paths with no concat/`chr` in argv, ctypes/syscall-based writes, and interpreter one-liners that never mention a policy path or outside prefix in the command string.
+
+**Guard mitigation:** Partial — concat/chr normalization covers audit probes 1.5, 2.9, 3.16, 5.5, 15.14–15.17. No read-only `/tmp` or interpreter wrappers (those break normal `-c` use).
 
 ---
 

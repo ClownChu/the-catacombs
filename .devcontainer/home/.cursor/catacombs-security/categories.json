@@ -4,6 +4,9 @@
     "ssh_dir",
     "secret_values",
     "credential_access",
+    "agent_config",
+    "file_read_outside_repos",
+    "symlink_escape",
     "destructive_fs",
     "privilege_escalation",
     "container_escape",
@@ -16,11 +19,14 @@
   "ask_unsupported_hooks": ["preToolUse", "beforeReadFile"],
   "ask_unsupported_fallback": "deny",
   "destructive_fs": {
-    "matcher": "shell_regex",
+    "matcher": "destructive_fs",
     "intention": "run destructive filesystem command",
+    "delete_tools": ["Delete"],
+    "workspace_prefix": "/repos/",
     "shell_patterns": [
-      "\\brm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+|--force\\s+|--recursive\\s+|-[a-zA-Z]*r[a-zA-Z]*\\s+)",
-      "\\brm\\s+-[a-zA-Z]*r",
+      "\\brm\\b",
+      "\\brmdir\\b",
+      "\\bunlink\\b",
       "\\bmkfs\\.",
       "\\bdd\\s+if=",
       "\\bshred\\b",
@@ -45,13 +51,18 @@
     "matcher": "shell_regex",
     "intention": "run container runtime or escape sandbox",
     "shell_patterns": [
-      "\\bdocker\\b",
-      "\\bpodman\\b",
+      "\\bdocker\\s+",
+      "\\bpodman\\s+",
       "\\bnsenter\\b",
       "\\bunshare\\b",
-      "\\bmount\\s+",
+      "\\bmount\\b",
+      "\\bfindmnt\\b",
+      "/proc/mounts",
       "\\bfusermount\\b",
-      "\\bchroot\\b"
+      "\\bchroot\\b",
+      "\\bpivot_root\\b",
+      "\\bcapsh\\b",
+      "\\bsetns\\b"
     ]
   },
   "git_destructive": {
@@ -96,7 +107,20 @@
       "\\bprintenv\\b",
       "\\bexport\\s+-p\\b",
       "\\bdeclare\\s+-[px]\\b",
-      "\\bcompgen\\s+-v\\b"
+      "\\bcompgen\\s+-v\\b",
+      "/proc/(?:self|\\$\\$|\\d+)/environ",
+      "(?:^|[;&|\\n]\\s*)set\\s*(?:$|[;&|\\n])",
+      "(?:^|[;&|\\n]\\s*)declare\\s+-p\\s*(?:$|[;&|\\n])",
+      "(?:^|[;&|\\n]\\s*)typeset\\s+-p\\s*(?:$|[;&|\\n])",
+      "\\btypeset\\s+-x\\b",
+      "(?:\\b(?:awk|gawk|nawk)\\b).+\\bENVIRON\\b",
+      "count\\s*\\(\\s*\\$_SERVER\\s*\\)",
+      "count\\s*\\(\\s*\\$_ENV\\s*\\)",
+      "\\$_SERVER\\b(?!\\s*\\[)",
+      "\\$_ENV\\b(?!\\s*\\[)",
+      "\\bprocess\\.env\\b(?!\\.)",
+      "Object\\.keys\\s*\\(\\s*process\\.env",
+      "\\bgetenv\\s*\\(\\s*\\)"
     ],
     "env_access_code_patterns": [
       "process\\.env(\\.\\w+|\\[)",
@@ -123,7 +147,13 @@
       "**/*.pem",
       "**/*.p12",
       "**/.aws/credentials",
-      "**/.netrc"
+      "**/.netrc",
+      "**/.pgpass",
+      "**/.git-credentials",
+      "~/.npmrc",
+      "/home/agent/.npmrc",
+      "**/.docker/config.json",
+      "**/.config/gh/hosts.yml"
     ],
     "path_exclude": ["**/.ssh/*.pub"],
     "shell_patterns": [
@@ -160,9 +190,17 @@
       "\\bpnpm\\s+(add|install)\\b",
       "\\bpip\\s+install\\b",
       "\\bcomposer\\s+(require|install|update)\\b",
-      "\\bgh\\s+(api|repo\\s+clone)\\b",
+      "\\bgh\\b",
       "\\bgit\\s+clone\\s+https?://",
-      "\\bgit\\s+clone\\s+git@"
+      "\\bgit\\s+clone\\s+git@",
+      "host\\.docker\\.internal",
+      "\\b(mysql|mariadb|psql|redis-cli|mongosh)\\b",
+      "\\bgit\\s+(push|pull|fetch)\\b",
+      "\\burllib\\b",
+      "\\brequests\\.",
+      "\\burlopen\\s*\\(",
+      "\\bfetch\\s*\\(",
+      "file_get_contents\\s*\\(\\s*['\"]https?:"
     ]
   },
   "http_tools": {
@@ -180,14 +218,38 @@
     "intention": "write outside workspace",
     "write_path_exclude_prefix": "/repos/",
     "write_path_allow_patterns": [
-      "**/.cursor/rules/**",
-      "**/.cursor/mcp.json",
-      "**/.cursor/settings.json",
       "**/.cursor/agents/**",
       "**/.cursor/plugins/**",
       "**/.cursor/projects/**"
     ],
     "write_tools": ["Write", "StrReplace", "Delete"]
+  },
+  "agent_config": {
+    "matcher": "path",
+    "intention": "modify agent policy or skills",
+    "path_patterns": [
+      "**/.agents/**",
+      "**/.cursor/rules/**",
+      "**/.cursor/mcp.json",
+      "**/.cursor/settings.json",
+      "**/.skills-lock.json"
+    ],
+    "write_tools": ["Write", "StrReplace", "Delete", "EditNotebook"],
+    "read_tools": ["Read", "Grep"]
+  },
+  "file_read_outside_repos": {
+    "matcher": "read_prefix",
+    "intention": "read outside workspace",
+    "read_path_include_prefix": "/repos/",
+    "read_tools": ["Read", "Grep"]
+  },
+  "symlink_escape": {
+    "matcher": "shell_regex",
+    "intention": "create symlink",
+    "shell_patterns": [
+      "\\bln\\s+-s\\b",
+      "\\bln\\s+-[a-zA-Z]*s\\b"
+    ]
   },
   "guard_policy": {
     "matcher": "path",

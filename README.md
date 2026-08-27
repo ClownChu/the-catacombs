@@ -163,17 +163,19 @@ No database **server** runs inside the sandbox. PostgreSQL, MySQL/MariaDB, and o
 
 Cursor hooks enforce a **profile-driven security guard** on agent actions. Canonical guard sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only into `/home/agent/.cursor/` (hooks, `hooks.json`, `catacombs-security/`, `catacombs-security.json`). The rest of `.cursor/` (rules, MCP, settings) stays writable via the general bind mount.
 
-Agents **may** edit `.cursor/` except the four guard artifacts above. They **cannot read or write** `hooks.json`, `hooks/`, `catacombs-security.json`, or `catacombs-security/` — blocked at every profile with user notification. Files under `.ssh/` cannot be read or modified except **reading** `*.pub` keys.
+Agents **may** edit `.cursor/rules`, `.cursor/mcp.json`, and `.agents/` unless the active profile is `high`+ (`agent_config` category) or those paths are mounted read-only on the host. They **cannot read or write** `hooks.json`, `hooks/`, `catacombs-security.json`, or `catacombs-security/` — blocked at every profile with user notification. Files under `.ssh/` cannot be read or modified except **reading** `*.pub` keys.
 
 ### Profiles
 
 | Profile | Summary |
 |---------|---------|
-| `low` | Ask before most actions; hard-block guard policy, container escape, writes outside `/repos` |
-| `medium` (default) | Same ask-default model as low |
-| `high` | Blocks network egress, HTTP tools, credential access, destructive commands |
-| `extreme` | High + asks before subagent spawn |
-| `you-shall-not-pass` | Blocks subagents and writes outside `/repos` |
+| `low` | Ask before most shell actions; hard-block guard policy, container escape, writes outside `/repos`; ask on agent config writes (shell) and symlinks |
+| `medium` (default) | Same ask-default model as `low` |
+| `high` | Blocks network egress, HTTP tools, credentials, secrets, destructive commands, and agent config writes; re-enabled `file_write_outside_repos` |
+| `extreme` | Same blocks as `high`; asks before subagent spawn |
+| `you-shall-not-pass` | Maximum hook enforcement: network (incl. DB clients, `git`/`gh`), subagents, agent config, reads outside `/repos`, symlinks, writes outside `/repos` |
+
+Per-KV profile mapping and residual risks: [guard profile resolution matrix](docs/security-recommendations.md#guard-profile-resolution-matrix).
 
 Select the active profile in `.devcontainer/home/.cursor/catacombs-security.json` (overlay-mounted at `~/.cursor/catacombs-security.json`):
 
@@ -253,14 +255,14 @@ The sandbox limits Docker and root access, but an agent still has **intentional 
 | **Bind mounts** | `repos/`, `.cursor/`, `.agents/`, and `.ssh/` are read-write on the host — no container escape needed |
 | **SSH keys** | The mounted private key can push to repos and `ssh` to remote hosts |
 | **Host services** | `host.docker.internal` reaches databases and APIs exposed on the host |
-| **Persistence** | Agents can modify rules, skills, and MCP config for future sessions; guard hooks/config are read-only overlays |
+| **Persistence** | Agents can modify rules, skills, and MCP config for future sessions; `agent_config` blocks writes at `high`+; guard hooks/config are read-only overlays |
 
-The container runs with Docker's **default capability set** (no `--cap-add=all`) under gVisor.
+The container runs with Docker's **default capability set** (no `--cap-add=all`) under gVisor. Set `active_profile` to `you-shall-not-pass` in `catacombs-security.json` for maximum hook enforcement (see matrix in security recommendations).
 
 Full write-up and mitigations:
 
-- [docs/known-vulnerabilities.md](docs/known-vulnerabilities.md) — threat catalog (KV-01 … KV-09)
-- [docs/security-recommendations.md](docs/security-recommendations.md) — how to address each vulnerability
+- [docs/known-vulnerabilities.md](docs/known-vulnerabilities.md) — threat catalog (KV-01 … KV-09) with guard profile and residual-risk columns
+- [docs/security-recommendations.md](docs/security-recommendations.md) — mitigations and [guard profile resolution matrix](docs/security-recommendations.md#guard-profile-resolution-matrix)
 
 ## Further reading
 
