@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Secret-value heuristics for the Catacumbs security guard (not stdlib secrets)."""
+"""Secret-value heuristics for the Catacombs security guard (not stdlib secrets)."""
 
 from __future__ import annotations
 

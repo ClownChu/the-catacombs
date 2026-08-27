@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Catacumbs security guard — profile-driven policy enforcement for Cursor hooks."""
+"""Catacombs security guard — profile-driven policy enforcement for Cursor hooks."""
 
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ from guard_secrets import (
 )
 
 DEFAULT_PROFILE = "medium"
-AUDIT_LOG = Path.home() / ".cursor" / "catacumbs-security-audit.log"
+AUDIT_LOG = Path.home() / ".cursor" / "catacombs-security-audit.log"
 VALID_ACTIONS = frozenset({"allow", "ask", "block"})
 BLOCK_MESSAGE = (
-    "Blocked by Catacumbs security guard. "
+    "Blocked by Catacombs security guard. "
     "Operation: {operation}. Target: {target}. Intention: {intention}."
 )
 ASK_MESSAGE = (
-    "Catacumbs security guard requires approval. "
+    "Catacombs security guard requires approval. "
     "Operation: {operation}. Target: {target}. Intention: {intention}."
 )
 
@@ -92,14 +92,14 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def load_security_config(config_root: Path) -> dict[str, Any]:
-    path = config_root / "catacumbs-security.json"
+    path = config_root / "catacombs-security.json"
     if not path.is_file():
         return {"version": 1, "active_profile": DEFAULT_PROFILE, "overrides": {}}
     return _load_json(path)
 
 
 def load_categories(config_root: Path) -> dict[str, Any]:
-    return _load_json(config_root / "catacumbs-security" / "categories.json")
+    return _load_json(config_root / "catacombs-security" / "categories.json")
 
 
 def category_definitions(categories_data: dict[str, Any]) -> dict[str, Any]:
@@ -107,7 +107,7 @@ def category_definitions(categories_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_profile(profile_id: str, config_root: Path) -> dict[str, Any]:
-    path = config_root / "catacumbs-security" / "profiles" / f"{profile_id}.json"
+    path = config_root / "catacombs-security" / "profiles" / f"{profile_id}.json"
     if not path.is_file():
         raise KeyError(f"Unknown security profile: {profile_id!r}")
 
@@ -256,7 +256,7 @@ def command_reads_policy_path(command: str, cat_def: dict[str, Any]) -> bool:
     if READ_SHELL_CMDS.search(n):
         return True
     if re.search(r"\bunittest\b", n, re.IGNORECASE) and re.search(
-        r"\.cursor/hooks|catacumbs-security", n
+        r"\.cursor/hooks|catacombs-security", n
     ):
         return True
     return False
@@ -564,16 +564,16 @@ def evaluate(
     except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
         return GuardResult(
             permission="deny",
-            user_message="Catacumbs security guard failed to load configuration — denying (fail closed).",
-            agent_message="Catacumbs security guard failed to load configuration — denying (fail closed).",
+            user_message="Catacombs security guard failed to load configuration — denying (fail closed).",
+            agent_message="Catacombs security guard failed to load configuration — denying (fail closed).",
         )
 
     hook = event.get("hook")
     if not hook:
         return GuardResult(
             permission="deny",
-            user_message="Catacumbs security guard: missing hook in event.",
-            agent_message="Catacumbs security guard: missing hook in event.",
+            user_message="Catacombs security guard: missing hook in event.",
+            agent_message="Catacombs security guard: missing hook in event.",
         )
 
     merged = merge_category_settings(profile, user_overrides)
@@ -672,7 +672,7 @@ def evaluate_audit(
 
     write_audit("secret_values", subtype, detail, "audit_warn")
     msg = (
-        f"Catacumbs security audit: possible secret exposure detected "
+        f"Catacombs security audit: possible secret exposure detected "
         f"({subtype}: {detail}). Review the agent output — values are not logged."
     )
     return AuditResult(
@@ -691,7 +691,7 @@ def guard_main() -> int:
         print(json.dumps(payload))
         return 1
 
-    hook = os.environ.get("CATACUMBS_HOOK")
+    hook = os.environ.get("CATACOMBS_HOOK")
     if hook:
         event["hook"] = hook
 

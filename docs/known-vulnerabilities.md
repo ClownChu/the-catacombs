@@ -1,8 +1,8 @@
 # Known vulnerabilities
 
-![The Catacumbs — Known Vulnerabilities](../docs/images/hero-vulnerabilities.webp)
+![The Catacombs — Known Vulnerabilities](images/hero-vulnerabilities.webp)
 
-Threat model for **The Catacumbs**: a Cursor agent runs with shell access inside a gVisor devcontainer. The goal is to limit blast radius on the host and on connected systems, while still allowing productive development. This document lists known weaknesses in the current design — not theoretical zero-days, but realistic paths a misbehaving or compromised agent could take today.
+Threat model for **The Catacombs**: a Cursor agent runs with shell access inside a gVisor devcontainer. The goal is to limit blast radius on the host and on connected systems, while still allowing productive development. This document lists known weaknesses in the current design — not theoretical zero-days, but realistic paths a misbehaving or compromised agent could take today.
 
 ## Summary
 
@@ -86,7 +86,7 @@ Because `.cursor/` (rules, MCP, settings) and `.agents/` are mounted writable, a
 - Add malicious MCP server entries in `.cursor/mcp.json`
 - Install or alter skills under `.agents/skills/`
 
-Guard artifacts (`hooks.json`, `hooks/`, `catacumbs-security.json`, `catacumbs-security/`) are overlay-mounted read-only and blocked from agent read/write by hooks at every profile.
+Guard artifacts (`hooks.json`, `hooks/`, `catacombs-security.json`, `catacombs-security/`) are overlay-mounted read-only and blocked from agent read/write by hooks at every profile.
 
 **Impact:** Long-lived compromise without repeating the initial prompt; gradual policy erosion that may not be obvious in a diff review.
 

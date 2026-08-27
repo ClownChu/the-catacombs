@@ -1,6 +1,6 @@
 # Security recommendations
 
-![The Catacumbs — Security recommendations](../docs/images/hero-recommendations.webp)
+![The Catacombs — Security recommendations](images/hero-recommendations.webp)
 
 Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./known-vulnerabilities.md). Ordered by impact; implement the **Critical** and **High** items before trusting the sandbox with sensitive keys or production-adjacent services.
 
@@ -23,7 +23,7 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 1. **Use a dedicated deploy key per repo** (read-only when possible) instead of your personal `id_ed25519`. Generate on the host:
    ```bash
-   ssh-keygen -t ed25519 -f .devcontainer/home/.ssh/id_ed25519_github -C "catacumbs-agent"
+   ssh-keygen -t ed25519 -f .devcontainer/home/.ssh/id_ed25519_github -C "catacombs-agent"
    ```
    Add the public key to a single GitHub repo with **read-only** access.
 
@@ -70,9 +70,9 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
      "source=${localWorkspaceFolder}/.cursor/rules,target=/home/agent/.cursor/rules,type=bind,readonly"
      ```
 
-3. **Version-control and review changes** to `.cursor/`, `.agents/`, and `skills-lock.json` the same as application code. After agent sessions, run `git diff` on the catacumbs root.
+3. **Version-control and review changes** to `.cursor/`, `.agents/`, and `skills-lock.json` the same as application code. After agent sessions, run `git diff` on the catacombs root.
 
-4. **Use a dedicated catacumbs clone** on a machine or user account that does not hold unrelated personal files.
+4. **Use a dedicated catacombs clone** on a machine or user account that does not hold unrelated personal files.
 
 5. **Optional: narrow workspace mount** to a single project directory instead of all of `repos/` when working on one module.
 
@@ -90,7 +90,7 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 4. **Add a post-session hook or checklist** to diff `.cursor/` and `.agents/` before committing.
 
-5. **Use branch protection** on the catacumbs repo so agent-modified rules cannot merge without human review.
+5. **Use branch protection** on the catacombs repo so agent-modified rules cannot merge without human review.
 
 ---
 
@@ -125,9 +125,9 @@ Mitigations for the vulnerabilities documented in [known-vulnerabilities.md](./k
 
 ---
 
-## Catacumbs security guard (IDE hooks)
+## Catacombs security guard (IDE hooks)
 
-**Layer 1** enforcement ships with the repo. Canonical sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only onto `~/.cursor/` for hooks and security config. `hooks.json` resolves `catacumbs-hook.sh` from **`.cursor/hooks/`** (workspace-relative) first, then **`~/.cursor/hooks/`**; the entrypoint `exec`s `catacumbs_guard.py` with `guard` or `audit`. Missing scripts fail closed. The guard loads the active profile from `catacumbs-security.json`, level files from `catacumbs-security/profiles/`, and shared patterns from `catacumbs-security/categories.json`.
+**Layer 1** enforcement ships with the repo. Canonical sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only onto `~/.cursor/` for hooks and security config. `hooks.json` resolves `catacombs-hook.sh` from **`.cursor/hooks/`** (workspace-relative) first, then **`~/.cursor/hooks/`**; the entrypoint `exec`s `catacombs_guard.py` with `guard` or `audit`. Missing scripts fail closed. The guard loads the active profile from `catacombs-security.json`, level files from `catacombs-security/profiles/`, and shared patterns from `catacombs-security/categories.json`.
 
 | Hook | Purpose |
 |------|---------|
@@ -146,8 +146,8 @@ Guard config is shipped read-only via overlay mounts in `devcontainer.json` (aft
 ```json
 "source=${localWorkspaceFolder}/.devcontainer/home/.cursor/hooks,target=/home/agent/.cursor/hooks,type=bind,readonly",
 "source=${localWorkspaceFolder}/.devcontainer/home/.cursor/hooks.json,target=/home/agent/.cursor/hooks.json,type=bind,readonly",
-"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/catacumbs-security,target=/home/agent/.cursor/catacumbs-security,type=bind,readonly",
-"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/catacumbs-security.json,target=/home/agent/.cursor/catacumbs-security.json,type=bind,readonly"
+"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/catacombs-security,target=/home/agent/.cursor/catacombs-security,type=bind,readonly",
+"source=${localWorkspaceFolder}/.devcontainer/home/.cursor/catacombs-security.json,target=/home/agent/.cursor/catacombs-security.json,type=bind,readonly"
 ```
 
 Agents may still edit `.cursor/rules`, `.cursor/mcp.json`, and other writable paths under the general `.cursor` mount.
@@ -168,7 +168,7 @@ Rebuild the devcontainer after mount changes.
 
 Hooks handle path-aware rules (`.env`, credential paths, ask/block UX). Kernel and host layers add syscall reduction and egress control — **complementary, not interchangeable**.
 
-| Layer | What it blocks | Status in catacumbs |
+| Layer | What it blocks | Status in catacombs |
 |-------|----------------|---------------------|
 | **gVisor (`runsc`)** | Syscall surface reduction | **Enabled** in `devcontainer.json` `runArgs` |
 | **Docker seccomp profile** | Dangerous syscalls (`mount`, `ptrace`, `reboot`, …) | Documented optional follow-up |
@@ -215,9 +215,9 @@ Block container bridge egress except allowlisted destinations. Example with `nft
 docker network inspect bridge | jq '.[0].IPAM.Config'
 
 # Example: deny all egress from 172.17.0.0/16 except DNS and HTTPS to specific CIDR
-sudo nft add table ip catacumbs
-sudo nft 'add chain ip catacumbs forward { type filter hook forward priority 0; policy accept; }'
-sudo nft add rule ip catacumbs forward ip saddr 172.17.0.0/16 ip daddr != 172.17.0.0/16 drop
+sudo nft add table ip catacombs
+sudo nft 'add chain ip catacombs forward { type filter hook forward priority 0; policy accept; }'
+sudo nft add rule ip catacombs forward ip saddr 172.17.0.0/16 ip daddr != 172.17.0.0/16 drop
 ```
 
 Narrower allowlists (npm, MCP endpoints) require maintenance; hooks remain the primary network policy UX (`network_egress` category).
@@ -236,7 +236,7 @@ Layer 3 (host):      egress firewall  — network deny/allowlist                
 
 ### Recommendations
 
-1. **Use the security guard** — set `active_profile` to `high` or `extreme` in `.devcontainer/home/.cursor/catacumbs-security.json` to block outbound network commands.
+1. **Use the security guard** — set `active_profile` to `high` or `extreme` in `.devcontainer/home/.cursor/catacombs-security.json` to block outbound network commands.
 
 2. **Run on an isolated network** (VM, cloud dev box) without access to production VPCs.
 
@@ -281,7 +281,7 @@ Layer 3 (host):      egress firewall  — network deny/allowlist                
 
 ## Hardened profile (checklist)
 
-A practical “safer catacumbs” setup:
+A practical “safer catacombs” setup:
 
 - [ ] Dedicated read-only or single-repo SSH deploy key in `.devcontainer/home/.ssh/`
 - [ ] `.ssh` mount marked `readonly` where compatible
@@ -290,15 +290,15 @@ A practical “safer catacumbs” setup:
 - [ ] Host DBs and admin UIs not exposed on bridge-accessible ports
 - [x] `--cap-add=all` removed from `runArgs` (already the default)
 - [ ] `cursor.chat.autoRun` left disabled (default) or only enabled for trusted sessions
-- [ ] Security guard profile set (`medium` or stricter) in `.devcontainer/home/.cursor/catacumbs-security.json`
+- [ ] Security guard profile set (`medium` or stricter) in `.devcontainer/home/.cursor/catacombs-security.json`
 - [ ] Guard hooks + profiles mounted read-only via `.devcontainer/home/.cursor/` overlays (shipped in `devcontainer.json`)
-- [ ] Catacumbs runs on a dedicated dev machine or VM, not your daily driver with full keys
+- [ ] Catacombs runs on a dedicated dev machine or VM, not your daily driver with full keys
 
 ---
 
 ## Trade-offs
 
-Tighter security reduces agent autonomy and convenience. The catacumbs design intentionally trades **some** host exposure for productivity (git over SSH, host DB access, editable rules). Choose a profile that matches your data classification:
+Tighter security reduces agent autonomy and convenience. The catacombs design intentionally trades **some** host exposure for productivity (git over SSH, host DB access, editable rules). Choose a profile that matches your data classification:
 
 | Profile | Mounts | Keys | `host.docker.internal` | Auto-run |
 |---------|--------|------|------------------------|----------|

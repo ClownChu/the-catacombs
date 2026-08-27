@@ -1,6 +1,6 @@
-# The Catacumbs
+# The Catacombs
 
-![The Catacumbs — gVisor-isolated agent sandbox for software development](docs/images/hero.webp)
+![The Catacombs — gVisor-isolated agent sandbox for software development](docs/images/hero.webp)
 
 A gVisor-isolated agent sandbox for software development. Cursor agents run inside a hardened devcontainer with pre-installed tooling; Docker workloads and long-running services stay on the **host**.
 
@@ -12,7 +12,7 @@ A gVisor-isolated agent sandbox for software development. Cursor agents run insi
 │  Docker daemon · compose stacks · databases · dev services  │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  The Catacumbs devcontainer (gVisor / runsc)          │  │
+│  │  The Catacombs devcontainer (gVisor / runsc)          │  │
 │  │  Cursor · agents · PHP · Node · Playwright · Serena   │  │
 │  │  Workspace: /repos  ← bind-mount of host repos/       │  │
 │  └───────────────────────────────────────────────────────┘  │
@@ -57,8 +57,8 @@ Install on the machine that runs Docker and Cursor — **not** inside the devcon
 ### 1. Clone
 
 ```bash
-git clone git@github.com:ClownChu/the-catacumbs.git
-cd the-catacumbs
+git clone git@github.com:ClownChu/the-catacombs.git
+cd the-catacombs
 ```
 
 ### 2. Initialize on the host
@@ -111,8 +111,8 @@ On first build the image is created from `.devcontainer/Dockerfile`. Bind mounts
 | `.cursor/` | `/home/agent/.cursor` (writable — rules, MCP, settings) |
 | `.devcontainer/home/.cursor/hooks` | `/home/agent/.cursor/hooks` (read-only overlay) |
 | `.devcontainer/home/.cursor/hooks.json` | `/home/agent/.cursor/hooks.json` (read-only overlay) |
-| `.devcontainer/home/.cursor/catacumbs-security` | `/home/agent/.cursor/catacumbs-security` (read-only overlay) |
-| `.devcontainer/home/.cursor/catacumbs-security.json` | `/home/agent/.cursor/catacumbs-security.json` (read-only overlay) |
+| `.devcontainer/home/.cursor/catacombs-security` | `/home/agent/.cursor/catacombs-security` (read-only overlay) |
+| `.devcontainer/home/.cursor/catacombs-security.json` | `/home/agent/.cursor/catacombs-security.json` (read-only overlay) |
 | `.agents/` | `/home/agent/.agents` |
 | `.devcontainer/home/.ssh/` | `/home/agent/.ssh` |
 | `skills-lock.json` | `/home/agent/.skills-lock.json` |
@@ -161,9 +161,9 @@ No database **server** runs inside the sandbox. PostgreSQL, MySQL/MariaDB, and o
 
 ## Security guard
 
-Cursor hooks enforce a **profile-driven security guard** on agent actions. Canonical guard sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only into `/home/agent/.cursor/` (hooks, `hooks.json`, `catacumbs-security/`, `catacumbs-security.json`). The rest of `.cursor/` (rules, MCP, settings) stays writable via the general bind mount.
+Cursor hooks enforce a **profile-driven security guard** on agent actions. Canonical guard sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only into `/home/agent/.cursor/` (hooks, `hooks.json`, `catacombs-security/`, `catacombs-security.json`). The rest of `.cursor/` (rules, MCP, settings) stays writable via the general bind mount.
 
-Agents **may** edit `.cursor/` except the four guard artifacts above. They **cannot read or write** `hooks.json`, `hooks/`, `catacumbs-security.json`, or `catacumbs-security/` — blocked at every profile with user notification. Files under `.ssh/` cannot be read or modified except **reading** `*.pub` keys.
+Agents **may** edit `.cursor/` except the four guard artifacts above. They **cannot read or write** `hooks.json`, `hooks/`, `catacombs-security.json`, or `catacombs-security/` — blocked at every profile with user notification. Files under `.ssh/` cannot be read or modified except **reading** `*.pub` keys.
 
 ### Profiles
 
@@ -175,7 +175,7 @@ Agents **may** edit `.cursor/` except the four guard artifacts above. They **can
 | `extreme` | High + asks before subagent spawn |
 | `you-shall-not-pass` | Blocks subagents and writes outside `/repos` |
 
-Select the active profile in `.devcontainer/home/.cursor/catacumbs-security.json` (overlay-mounted at `~/.cursor/catacumbs-security.json`):
+Select the active profile in `.devcontainer/home/.cursor/catacombs-security.json` (overlay-mounted at `~/.cursor/catacombs-security.json`):
 
 ```json
 {
@@ -189,13 +189,13 @@ Per-category overrides (`action`: `block` | `ask` | `allow`; `notify`: `true`) m
 
 ### `.env` and secret values
 
-The `secret_values` category is **enabled at every level**. On `low`/`medium`, shell access to secrets is **ask**; direct file reads (`beforeReadFile`, `Read`/`Grep`) are **denied** because Cursor cannot prompt on those hooks. On `high` and above, secret access is blocked outright. Violations emit `user_message` + `agent_message` (blocks) and an audit line to `~/.cursor/catacumbs-security-audit.log` (names/paths only — never values).
+The `secret_values` category is **enabled at every level**. On `low`/`medium`, shell access to secrets is **ask**; direct file reads (`beforeReadFile`, `Read`/`Grep`) are **denied** because Cursor cannot prompt on those hooks. On `high` and above, secret access is blocked outright. Violations emit `user_message` + `agent_message` (blocks) and an audit line to `~/.cursor/catacombs-security-audit.log` (names/paths only — never values).
 
 ### Hook vs kernel layers
 
 | Layer | Role |
 |-------|------|
-| **IDE hooks** (shipped) | Path-aware rules, `.env` blocking, ask/block UX, audit log — `hooks.json` resolves `catacumbs-hook.sh` from `.cursor/hooks/` first, then `~/.cursor/hooks/` |
+| **IDE hooks** (shipped) | Path-aware rules, `.env` blocking, ask/block UX, audit log — `hooks.json` resolves `catacombs-hook.sh` from `.cursor/hooks/` first, then `~/.cursor/hooks/` |
 | **gVisor + seccomp** (optional) | Syscall reduction — gVisor already enabled; seccomp documented in [security-recommendations](docs/security-recommendations.md) |
 | **Host egress firewall** (optional) | Network deny/allowlist on the Docker bridge |
 
@@ -217,7 +217,7 @@ Cursor agents in this sandbox follow rules in `.cursor/rules/`:
 
 | Rule | Purpose |
 |------|---------|
-| `catacumbs.mdc` | Environment constraints (no Docker in sandbox, networking, resource limits) |
+| `catacombs.mdc` | Environment constraints (no Docker in sandbox, networking, resource limits) |
 | `ponytail.mdc` | Minimal-diff coding style |
 | `serena-use.mdc` | Serena MCP for PHP symbol navigation and edits |
 | `ironbee-devtools-use.mdc` | Browser verification via IronBee DevTools |
@@ -242,7 +242,7 @@ in `.devcontainer/devcontainer.json` (under `customizations.vscode.settings`) or
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `CATACUMBS` | `1` | Marks the catacumbs sandbox |
+| `CATACOMBS` | `1` | Marks the catacombs sandbox |
 
 ## Known vulnerabilities
 
@@ -264,6 +264,6 @@ Full write-up and mitigations:
 
 ## Further reading
 
-- `.cursor/rules/catacumbs.mdc` — full environment rules for agents
+- `.cursor/rules/catacombs.mdc` — full environment rules for agents
 - `.cursor/rules/serena-use.mdc` — Serena MCP usage
 - `.cursor/rules/ironbee-devtools-use.mdc` — IronBee DevTools browser verification

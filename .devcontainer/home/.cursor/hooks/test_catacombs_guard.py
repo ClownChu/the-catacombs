@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for catacumbs security guard."""
+"""Unit tests for catacombs security guard."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from catacumbs_guard import (  # noqa: E402
+from catacombs_guard import (  # noqa: E402
     DEFAULT_PROFILE,
     GuardResult,
     evaluate,
@@ -92,7 +92,7 @@ class TestProfileMatrix(unittest.TestCase):
     def test_scenarios(self):
         for row in SCENARIOS:
             with self.subTest(scenario_id=row["id"], profile=row["profile"]):
-                with patch("catacumbs_guard.write_audit"):
+                with patch("catacombs_guard.write_audit"):
                     result = evaluate(
                         row["event"],
                         profile_id=row["profile"],
@@ -106,7 +106,7 @@ class TestSecretValues(unittest.TestCase):
     def test_sensitive_env_var_blocked_high_profiles(self):
         for profile in ("high", "extreme", "you-shall-not-pass"):
             with self.subTest(profile=profile):
-                with patch("catacumbs_guard.write_audit"):
+                with patch("catacombs_guard.write_audit"):
                     result = evaluate(
                         {
                             "command": 'python3 -c \'import os; print(os.environ["DB_CONNECTION"])\'',
@@ -142,12 +142,12 @@ class TestGuardPolicy(unittest.TestCase):
             },
             {
                 "tool_name": "Read",
-                "file_path": ".cursor/hooks/catacumbs_guard.py",
+                "file_path": ".cursor/hooks/catacombs_guard.py",
                 "hook": "preToolUse",
             },
             {
                 "tool_name": "Grep",
-                "file_path": ".cursor/catacumbs-security/categories.json",
+                "file_path": ".cursor/catacombs-security/categories.json",
                 "hook": "preToolUse",
             },
             {
@@ -156,12 +156,12 @@ class TestGuardPolicy(unittest.TestCase):
             },
             {
                 "tool_name": "StrReplace",
-                "file_path": ".cursor/catacumbs-security.json",
+                "file_path": ".cursor/catacombs-security.json",
                 "hook": "preToolUse",
             },
             {
                 "tool_name": "Write",
-                "file_path": "/home/agent/.cursor/hooks/catacumbs_guard.py",
+                "file_path": "/home/agent/.cursor/hooks/catacombs_guard.py",
                 "hook": "preToolUse",
             },
             {
@@ -181,7 +181,7 @@ class TestGuardPolicy(unittest.TestCase):
         for profile in ALL_PROFILES:
             for event in events:
                 with self.subTest(profile=profile, event=event):
-                    with patch("catacumbs_guard.write_audit"):
+                    with patch("catacombs_guard.write_audit"):
                         result = evaluate(
                             event,
                             profile_id=profile,
@@ -196,7 +196,7 @@ class TestGuardPolicy(unittest.TestCase):
         events = [
             {
                 "tool_name": "Write",
-                "file_path": ".cursor/rules/catacumbs.mdc",
+                "file_path": ".cursor/rules/catacombs.mdc",
                 "hook": "preToolUse",
             },
             {
@@ -216,7 +216,7 @@ class TestGuardPolicy(unittest.TestCase):
                 self.assertEqual(result.permission, "allow")
 
     def test_running_unit_tests_blocked(self):
-        with patch("catacumbs_guard.write_audit"):
+        with patch("catacombs_guard.write_audit"):
             result = evaluate(
                 {
                     "command": "python3 -m unittest discover -s .devcontainer/home/.cursor/hooks -p 'test_*.py' -v",
@@ -245,7 +245,7 @@ class TestGuardPolicy(unittest.TestCase):
     def test_write_outside_repos_blocked_low_medium(self):
         for profile in ("low", "medium"):
             with self.subTest(profile=profile):
-                with patch("catacumbs_guard.write_audit"):
+                with patch("catacombs_guard.write_audit"):
                     result = evaluate(
                         {
                             "tool_name": "Write",
@@ -264,7 +264,7 @@ class TestSshDir(unittest.TestCase):
     def test_private_key_blocked_all_profiles(self):
         for profile in ALL_PROFILES:
             with self.subTest(profile=profile):
-                with patch("catacumbs_guard.write_audit"):
+                with patch("catacombs_guard.write_audit"):
                     result = evaluate(
                         {
                             "file_path": "~/.ssh/id_ed25519",
@@ -295,7 +295,7 @@ class TestSshDir(unittest.TestCase):
         self.assertEqual(result.permission, "allow")
 
     def test_pub_write_blocked(self):
-        with patch("catacumbs_guard.write_audit"):
+        with patch("catacombs_guard.write_audit"):
             result = evaluate(
                 {
                     "tool_name": "Write",
@@ -310,7 +310,7 @@ class TestSshDir(unittest.TestCase):
         self.assertEqual(result.category, "ssh_dir")
 
     def test_shell_cat_private_blocked(self):
-        with patch("catacumbs_guard.write_audit"):
+        with patch("catacombs_guard.write_audit"):
             result = evaluate(
                 {"command": "cat ~/.ssh/id_ed25519", "hook": "beforeShellExecution"},
                 profile_id="low",
@@ -332,7 +332,7 @@ class TestSshDir(unittest.TestCase):
 
 class TestOverrides(unittest.TestCase):
     def test_override_allows_network(self):
-        with patch("catacumbs_guard.write_audit"):
+        with patch("catacombs_guard.write_audit"):
             result = evaluate(
                 {"command": "curl https://example.com", "hook": "beforeShellExecution"},
                 profile_id="high",
@@ -344,7 +344,7 @@ class TestOverrides(unittest.TestCase):
 
 class TestAuditHook(unittest.TestCase):
     def test_shell_output_with_env_secret_triggers_warning(self):
-        with patch("catacumbs_guard.write_audit"):
+        with patch("catacombs_guard.write_audit"):
             result = evaluate_audit(
                 {"command": "cat .env", "output": "DB_PASSWORD=supersecret\n"},
                 config_root=CONFIG_ROOT,
