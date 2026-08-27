@@ -1,0 +1,296 @@
+{
+  "match_order": [
+    "guard_policy",
+    "ssh_dir",
+    "secret_values",
+    "credential_access",
+    "agent_config",
+    "file_read_outside_repos",
+    "symlink_escape",
+    "destructive_fs",
+    "privilege_escalation",
+    "container_escape",
+    "git_destructive",
+    "network_egress",
+    "http_tools",
+    "subagent_spawn",
+    "file_write_outside_repos"
+  ],
+  "ask_unsupported_hooks": ["preToolUse", "beforeReadFile"],
+  "ask_unsupported_fallback": "deny",
+  "destructive_fs": {
+    "matcher": "destructive_fs",
+    "intention": "run destructive filesystem command",
+    "delete_tools": ["Delete"],
+    "workspace_prefix": "/repos/",
+    "workspace_shell_patterns": [
+      "\\brm\\b",
+      "\\brmdir\\b",
+      "\\bunlink\\b"
+    ],
+    "shell_patterns": [
+      "\\bmkfs\\.",
+      "\\bdd\\s+if=",
+      "\\bshred\\b",
+      "\\btruncate\\s+-s\\s+0\\b",
+      ">\\s*/dev/sd",
+      "\\bformat\\s+[a-zA-Z]:"
+    ]
+  },
+  "privilege_escalation": {
+    "matcher": "shell_regex",
+    "intention": "escalate privileges",
+    "shell_patterns": [
+      "\\bsudo\\b",
+      "\\bsu\\s",
+      "\\bdoas\\b",
+      "\\bchmod\\s+.*\\+s",
+      "\\bchown\\s+root:",
+      "\\bpkexec\\b"
+    ]
+  },
+  "container_escape": {
+    "matcher": "shell_regex",
+    "intention": "run container runtime or escape sandbox",
+    "shell_patterns": [
+      "\\bdocker\\s+",
+      "\\bpodman\\s+",
+      "\\bnsenter\\b",
+      "\\bunshare\\b",
+      "\\bmount\\b",
+      "\\bfindmnt\\b",
+      "/proc/mounts",
+      "\\bfusermount\\b",
+      "\\bchroot\\b",
+      "\\bpivot_root\\b",
+      "\\bcapsh\\b",
+      "\\bsetns\\b"
+    ]
+  },
+  "git_destructive": {
+    "matcher": "shell_regex",
+    "intention": "run destructive git command",
+    "shell_patterns": [
+      "\\bgit\\s+push\\s+.*--force",
+      "\\bgit\\s+push\\s+-f\\b",
+      "\\bgit\\s+reset\\s+--hard",
+      "\\bgit\\s+clean\\s+-[a-zA-Z]*f",
+      "\\bgit\\s+branch\\s+-D\\b",
+      "\\bgit\\s+filter-branch\\b"
+    ]
+  },
+  "secret_values": {
+    "matcher": "secrets",
+    "intention": "read secret environment values",
+    "intention_overrides": {
+      "env_file": "read environment file",
+      "env_var": "read sensitive environment variable",
+      "env_dump": "dump full environment"
+    },
+    "env_file_paths": ["**/.env", "**/.env.*", "**/*.env"],
+    "env_file_path_exclude": ["**/.env.example", "**/.env.sample", "**/.env.template"],
+    "env_file_shell_patterns": [
+      "\\b(cat|head|tail|less|more|grep|awk|sed|php|python3?|node)\\b[^\\n|]*(?<![A-Za-z0-9_])\\.env(?:\\b|/|['\"]|$)"
+    ],
+    "env_var_name_keywords": [
+      "CONNECTION", "CONN", "CONNECT",
+      "KEY", "APIKEY", "API_KEY", "SECRET_KEY", "ACCESS_KEY", "PRIVATE_KEY",
+      "PASSWORD", "PASSWD", "PASS", "PW", "PWD",
+      "SECRET", "TOKEN", "CREDENTIAL", "CRED",
+      "AUTH", "AUTHORIZATION", "OAUTH",
+      "PRIVATE", "SALT", "SIGNING", "SIGNATURE",
+      "CERT", "CERTIFICATE",
+      "DSN", "DATABASE_URL", "JDBC",
+      "BEARER", "SESSION", "COOKIE",
+      "ENCRYPTION", "CIPHER", "MNEMONIC", "SEED", "WEBHOOK"
+    ],
+    "env_dump_shell_patterns": [
+      "(?<![.\\w])env\\b",
+      "\\bprintenv\\b",
+      "\\bexport\\s+-p\\b",
+      "\\bdeclare\\s+-[px]\\b",
+      "\\bcompgen\\s+-v\\b",
+      "/proc/(?:self|\\$\\$|\\d+)/environ",
+      "(?:^|[;&|\\n]\\s*)set\\s*(?:$|[;&|\\n])",
+      "(?:^|[;&|\\n]\\s*)declare\\s+-p\\s*(?:$|[;&|\\n])",
+      "(?:^|[;&|\\n]\\s*)typeset\\s+-p\\s*(?:$|[;&|\\n])",
+      "\\btypeset\\s+-x\\b",
+      "(?:\\b(?:awk|gawk|nawk)\\b).+\\bENVIRON\\b",
+      "count\\s*\\(\\s*\\$_SERVER\\s*\\)",
+      "count\\s*\\(\\s*\\$_ENV\\s*\\)",
+      "\\$_SERVER\\b(?!\\s*\\[)",
+      "\\$_ENV\\b(?!\\s*\\[)",
+      "\\bprocess\\.env\\b(?!\\.)",
+      "Object\\.keys\\s*\\(\\s*process\\.env",
+      "\\bgetenv\\s*\\(\\s*\\)",
+      "from\\s+os\\s+import\\s+environ",
+      "from\\s+posix\\s+import\\s+environ",
+      "posix\\.environ",
+      "(?<![\\w.])environ\\s*\\.\\s*keys\\s*\\(",
+      "len\\s*\\(\\s*(?:os\\.)?environ\\s*\\)",
+      "importlib\\.import_module\\s*\\(\\s*['\"]os['\"]\\s*\\)\\s*\\.\\s*environ",
+      "os\\.__dict__\\s*\\[\\s*['\"]environ['\"]\\s*\\]",
+      "os\\.__dict__\\s*\\.\\s*get\\s*\\(\\s*['\"]environ['\"]\\s*\\)",
+      "vars\\s*\\(\\s*os\\s*\\)\\s*\\[\\s*['\"]environ['\"]\\s*\\]",
+      "__getattribute__\\s*\\(\\s*['\"]environ['\"]\\s*\\)",
+      "object\\.__getattribute__\\s*\\(\\s*os\\s*,\\s*['\"]environ['\"]\\s*\\)"
+    ],
+    "env_access_code_patterns": [
+      "process\\.env(\\.\\w+|\\[)",
+      "os\\.environ",
+      "os\\.getenv\\s*\\(",
+      "getenv\\s*\\(",
+      "\\$_ENV\\[",
+      "\\$_SERVER\\[",
+      "System\\.getenv\\s*\\(",
+      "Environment\\.GetEnvironmentVariable",
+      "Dotenv::",
+      "dotenv\\."
+    ],
+    "tools": ["Read", "Grep"]
+  },
+  "credential_access": {
+    "matcher": "path",
+    "intention": "access credential file",
+    "path_patterns": [
+      "**/.ssh/**",
+      "**/id_rsa",
+      "**/id_ed25519",
+      "**/id_ecdsa",
+      "**/*.pem",
+      "**/*.p12",
+      "**/.aws/credentials",
+      "**/.netrc",
+      "**/.pgpass",
+      "**/.git-credentials",
+      "~/.npmrc",
+      "/home/agent/.npmrc",
+      "**/.docker/config.json",
+      "**/.config/gh/hosts.yml"
+    ],
+    "path_exclude": ["**/.ssh/*.pub"],
+    "shell_patterns": [
+      "\\bcat\\s+.*\\.ssh/",
+      "\\bssh-add\\b",
+      "\\bgpg\\s+--export-secret"
+    ],
+    "tools": ["Read", "Grep"]
+  },
+  "ssh_dir": {
+    "matcher": "path",
+    "intention": "access SSH directory",
+    "shell_exclude_patterns": ["\\bln\\s+-[a-zA-Z]*s\\b"],
+    "path_patterns": ["**/.ssh/**"],
+    "read_allow_suffixes": [".pub"],
+    "shell_allow_pub_read": true,
+    "write_tools": ["Write", "StrReplace", "Delete", "EditNotebook"],
+    "read_tools": ["Read", "Grep"]
+  },
+  "network_egress": {
+    "matcher": "shell_regex",
+    "intention": "reach outbound network",
+    "shell_exclude_patterns": [".ssh/"],
+    "shell_patterns": [
+      "\\bcurl\\b",
+      "\\bwget\\b",
+      "\\bssh\\b",
+      "\\bscp\\b",
+      "\\bsftp\\b",
+      "\\brsync\\b",
+      "\\bnc\\b",
+      "\\bncat\\b",
+      "\\btelnet\\b",
+      "\\bnpm\\s+(install|ci|add|update)\\b",
+      "\\byarn\\s+(add|install)\\b",
+      "\\bpnpm\\s+(add|install)\\b",
+      "\\bpip\\s+install\\b",
+      "\\bcomposer\\s+(require|install|update)\\b",
+      "\\bgh\\b",
+      "\\bgit\\s+clone\\s+https?://",
+      "\\bgit\\s+clone\\s+git@",
+      "host\\.docker\\.internal",
+      "\\b(mysql|mariadb|psql|redis-cli|mongosh)\\b",
+      "\\bgit\\s+(push|pull|fetch)\\b",
+      "\\burllib\\b",
+      "\\brequests\\.",
+      "\\burlopen\\s*\\(",
+      "\\bfetch\\s*\\(",
+      "file_get_contents\\s*\\(\\s*['\"]https?:"
+    ]
+  },
+  "http_tools": {
+    "matcher": "tool_name",
+    "intention": "fetch remote content via HTTP tool",
+    "tools": ["WebFetch", "WebSearch"]
+  },
+  "subagent_spawn": {
+    "matcher": "tool_name",
+    "intention": "spawn subagent",
+    "tools": ["Task"]
+  },
+  "file_write_outside_repos": {
+    "matcher": "prefix",
+    "direction": "write",
+    "intention": "write outside workspace",
+    "write_path_exclude_prefix": "/repos/",
+    "write_path_allow_patterns": [
+      "**/.cursor/agents/**",
+      "**/.cursor/plugins/**",
+      "**/.cursor/projects/**"
+    ],
+    "write_tools": ["Write", "StrReplace", "Delete"]
+  },
+  "agent_config": {
+    "matcher": "path",
+    "intention": "modify agent policy or skills",
+    "match_writes": true,
+    "match_reads": false,
+    "path_patterns": [
+      "**/.agents/**",
+      "**/.cursor/rules/**",
+      "**/.cursor/mcp.json",
+      "**/.cursor/settings.json",
+      "**/.skills-lock.json"
+    ],
+    "write_tools": ["Write", "StrReplace", "Delete", "EditNotebook"],
+    "read_tools": ["Read", "Grep"]
+  },
+  "file_read_outside_repos": {
+    "matcher": "prefix",
+    "direction": "read",
+    "intention": "read outside workspace",
+    "read_path_include_prefix": "/repos/",
+    "read_tools": ["Read", "Grep"]
+  },
+  "symlink_escape": {
+    "matcher": "shell_regex",
+    "intention": "create symlink",
+    "shell_patterns": [
+      "\\bln\\s+-s\\b",
+      "\\bln\\s+-[a-zA-Z]*s\\b"
+    ]
+  },
+  "guard_policy": {
+    "matcher": "path",
+    "intention": "access guard policy",
+    "intention_overrides": {
+      "policy": "read or modify guard policy"
+    },
+    "write_tools": ["Write", "StrReplace", "Delete", "EditNotebook"],
+    "read_tools": ["Read", "Grep"],
+    "path_patterns": [
+      "**/.cursor/hooks.json",
+      "**/.cursor/hooks/**",
+      "**/.cursor/catacombs-security.json",
+      "**/.cursor/catacombs-security/**",
+      "~/.cursor/hooks.json",
+      "~/.cursor/hooks/**",
+      "~/.cursor/catacombs-security.json",
+      "~/.cursor/catacombs-security/**",
+      "**/.devcontainer/home/.cursor/hooks.json",
+      "**/.devcontainer/home/.cursor/hooks/**",
+      "**/.devcontainer/home/.cursor/catacombs-security.json",
+      "**/.devcontainer/home/.cursor/catacombs-security/**"
+    ]
+  }
+}

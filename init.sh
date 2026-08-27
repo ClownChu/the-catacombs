@@ -23,7 +23,7 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not installed."
 }
 
-info "Initializing catacumbs (host setup before devcontainer build)..."
+info "Initializing catacombs (host setup before devcontainer build)..."
 
 # --- Prerequisites (host) ---------------------------------------------------
 

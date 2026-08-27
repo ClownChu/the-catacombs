@@ -1,11 +1,11 @@
 ---
-description: Devcontainer environment constraints (You are in the catacumbs)
+description: Devcontainer environment constraints (You are in the catacombs)
 alwaysApply: true
 ---
 
-# catacumbs
+# catacombs
 
-This project runs inside a **devcontainer** called `The Catacumbs`. Assume all agent work happens in that sandbox unless the user explicitly says otherwise.
+This project runs inside a **devcontainer** called `The Catacombs`. Assume all agent work happens in that sandbox unless the user explicitly says otherwise.
 
 ## Root Access
 
@@ -39,11 +39,12 @@ This applies to any host-exposed HTTP/HTTPS endpoint (APIs, databases with HTTP 
 
 ## Workspace layout
 
-The devcontainer workspace is **`/repos`**, which bind-mounts only the host `repos/` directory — not the full catacumbs repo root.
+The devcontainer workspace is **`/repos`**, which bind-mounts only the host `repos/` directory — not the full catacombs repo root.
 
 | Host path | Container path | Notes |
 |-----------|----------------|-------|
 | `repos/` | `/repos` | Workspace folder; module code lives here |
+| `.catacombs-test/` | `/repos/.catacombs-test` | Read-only test fixtures overlay |
 | `.cursor/` | `/home/agent/.cursor` | Cursor config (rules, skills) |
 | `.agents/` | `/home/agent/.agents` | Agent skills |
 | `.devcontainer/home/.ssh/` | `/home/agent/.ssh` | SSH keys for git |
@@ -66,7 +67,7 @@ The sandbox is capped at **6 GB RAM** and **4 CPUs**. Avoid memory-heavy paralle
 
 - Runs as non-root user **`agent`** (uid 1000).
 - System packages are baked into the image at build time; do not run `apt install` expecting changes to persist — rebuild the devcontainer instead.
-- Pre-installed tooling: PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Composer, Node (LTS), Python 3.11 + `uv` + `pipx`, `gh` CLI, Playwright + Chromium, and the PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) clients.
+- Pre-installed tooling: PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Composer, Node 22.12.0 (nvm) plus Node LTS (devcontainer feature), Python 3.11 + `uv` + `pipx`, `gh` CLI, Playwright (OS deps in the image, browsers at container create), and the PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) clients.
 
 When a module needs a specific PHP version, invoke it explicitly (e.g. `php7.4`) rather than relying on the default.
 
@@ -85,4 +86,18 @@ The legacy **devenv** stack (`devenv/server`, `devenv/client`, `devenv/bridge`) 
 - Do not add new dependencies on devenv, its bridge, or its host control API.
 - Do not suggest starting or troubleshooting devenv services.
 - When touching config, docs, or scripts that still reference devenv, migrate away from it rather than extending it.
+
+## Security guard (enforced by hooks)
+
+Agents **must not** read `.env` files, print sensitive environment variables, or dump the full environment. This is enforced by Cursor hooks (`catacombs-guard`), not an honor system — attempts are blocked and logged to `~/.cursor/catacombs-security-audit.log`.
+
+- **Never** read `.env`, `.env.local`, or `*.env` (templates like `.env.example` are allowed).
+- **Never** echo, print, or execute code that exposes vars matching secret keywords (`PASSWORD`, `API_KEY`, `SECRET`, `TOKEN`, etc.).
+- **Never** run `env`, `printenv`, or `export -p` to dump the environment.
+- Active profile and overrides: `.devcontainer/home/.cursor/catacombs-security.json` (overlay-mounted at `~/.cursor/catacombs-security.json`). Default profile: `medium`.
+- To relax a category, the user must change `active_profile` or set an explicit override — do not work around the guard.
+- **May** read and write `.cursor/` except these four artifacts (unreadable and unwritable at every profile): `hooks.json`, `hooks/`, `catacombs-security.json`, `catacombs-security/`. Block attempts notify the user with operation, target, and inferred intention.
+- **Never** read or modify files under `.ssh/` folders, except **reading** `*.pub` files. Private keys, `config`, `known_hosts`, and writes to `*.pub` are blocked at every profile.
+
+Reading source code that *mentions* `process.env` as text is allowed; **executing** code that prints env values is not.
 

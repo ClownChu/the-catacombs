@@ -1,0 +1,22 @@
+{
+  "id": "low",
+  "label": "Low",
+  "description": "Ask before shell and MCP actions; hard-block guard policy, credentials, secrets, agent config, container escape, and writes outside /repos.",
+  "categories": {
+    "guard_policy": { "enabled": true, "action": "block", "notify": true },
+    "ssh_dir": { "enabled": true, "action": "block", "notify": true },
+    "secret_values": { "enabled": true, "action": "block", "notify": true },
+    "credential_access": { "enabled": true, "action": "block", "notify": true },
+    "agent_config": { "enabled": true, "action": "block", "notify": true },
+    "file_read_outside_repos": { "enabled": false, "action": "allow" },
+    "symlink_escape": { "enabled": true, "action": "ask" },
+    "destructive_fs": { "enabled": true, "action": "ask" },
+    "privilege_escalation": { "enabled": true, "action": "ask" },
+    "container_escape": { "enabled": true, "action": "block", "notify": true },
+    "git_destructive": { "enabled": true, "action": "ask" },
+    "network_egress": { "enabled": true, "action": "ask" },
+    "http_tools": { "enabled": true, "action": "allow" },
+    "subagent_spawn": { "enabled": true, "action": "allow" },
+    "file_write_outside_repos": { "enabled": true, "action": "block", "notify": true }
+  }
+}

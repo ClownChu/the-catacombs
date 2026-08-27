@@ -1,6 +1,6 @@
-# The Catacumbs
+# The Catacombs
 
-![The Catacumbs — gVisor-isolated agent sandbox for software development](docs/images/hero.webp)
+![The Catacombs — gVisor-isolated agent sandbox for software development](docs/images/hero.webp)
 
 A gVisor-isolated agent sandbox for software development. Cursor agents run inside a hardened devcontainer with pre-installed tooling; Docker workloads and long-running services stay on the **host**.
 
@@ -12,7 +12,7 @@ A gVisor-isolated agent sandbox for software development. Cursor agents run insi
 │  Docker daemon · compose stacks · databases · dev services  │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  The Catacumbs devcontainer (gVisor / runsc)          │  │
+│  │  The Catacombs devcontainer (gVisor / runsc)          │  │
 │  │  Cursor · agents · PHP · Node · Playwright · Serena   │  │
 │  │  Workspace: /repos  ← bind-mount of host repos/       │  │
 │  └───────────────────────────────────────────────────────┘  │
@@ -57,8 +57,8 @@ Install on the machine that runs Docker and Cursor — **not** inside the devcon
 ### 1. Clone
 
 ```bash
-git clone git@github.com:ClownChu/the-catacumbs.git
-cd the-catacumbs
+git clone git@github.com:ClownChu/the-catacombs.git
+cd the-catacombs
 ```
 
 ### 2. Initialize on the host
@@ -108,12 +108,17 @@ On first build the image is created from `.devcontainer/Dockerfile`. Bind mounts
 | Host path | Container path |
 |-----------|----------------|
 | `repos/` | `/repos` (workspace) |
-| `.cursor/` | `/home/agent/.cursor` |
+| `.catacombs-test/` | `/repos/.catacombs-test` (read-only overlay) |
+| `.cursor/` | `/home/agent/.cursor` (writable — rules, MCP, settings) |
+| `.devcontainer/home/.cursor/hooks` | `/home/agent/.cursor/hooks` (read-only overlay) |
+| `.devcontainer/home/.cursor/hooks.json` | `/home/agent/.cursor/hooks.json` (read-only overlay) |
+| `.devcontainer/home/.cursor/catacombs-security` | `/home/agent/.cursor/catacombs-security` (read-only overlay) |
+| `.devcontainer/home/.cursor/catacombs-security.json` | `/home/agent/.cursor/catacombs-security.json` (read-only overlay) |
 | `.agents/` | `/home/agent/.agents` |
 | `.devcontainer/home/.ssh/` | `/home/agent/.ssh` |
 | `skills-lock.json` | `/home/agent/.skills-lock.json` |
 
-After the container is created, `postCreateCommand` tightens SSH key permissions and loads the key into an agent, installs Playwright with Chromium, clears the git identity placeholders, and symlinks `.cursor/rules` into `/repos/.cursor/rules`.
+After the container is created, `postCreateCommand` tightens SSH key permissions and loads the key into an agent, installs Playwright browsers (`npm install -g playwright && npx playwright install`), clears the git identity placeholders, and symlinks `.cursor/rules` into `/repos/.cursor/rules`.
 
 ## Inside the sandbox
 
@@ -127,9 +132,9 @@ After the container is created, `postCreateCommand` tightens SSH key permissions
 
 | Category | Tools |
 |----------|-------|
-| Languages | PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Node (devcontainer feature, LTS), Python 3.11 |
+| Languages | PHP 5.6 / 7.4 / 8.1 / 8.5 (default `php` → 8.5), Node 22.12.0 (nvm in the image) plus LTS (devcontainer feature), Python 3.11 |
 | Package managers | Composer, npm, `uv`, `pipx` |
-| Automation | Playwright + Chromium (installed at container create) |
+| Automation | Playwright (OS deps in the image; browsers installed at container create) |
 | CLI | `gh`, PostgreSQL client (`psql`), MariaDB/MySQL client (`mysql`), SQLite (`sqlite3`) |
 | MCP | Serena (PHP symbol navigation via `.cursor/mcp.json`) |
 
@@ -155,13 +160,69 @@ Use `host.docker.internal` for any host-exposed HTTP/HTTPS endpoint, including d
 
 No database **server** runs inside the sandbox. PostgreSQL, MySQL/MariaDB, and other databases run on the host via Docker; connect with `host.docker.internal` and the port your compose stack exposes. **Clients** for PostgreSQL (`psql`), MariaDB/MySQL (`mysql`), and SQLite (`sqlite3`) are pre-installed in the container.
 
+## Security guard
+
+Cursor hooks enforce a **profile-driven security guard** on agent actions. Canonical guard sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only into `/home/agent/.cursor/` (hooks, `hooks.json`, `catacombs-security/`, `catacombs-security.json`). The rest of `.cursor/` (rules, MCP, settings) stays writable via the general bind mount.
+
+Agents **may** edit `.cursor/rules`, `.cursor/mcp.json`, and `.agents/` unless the active profile is `high`+ (`agent_config` category) or those paths are mounted read-only on the host. They **cannot read or write** `hooks.json`, `hooks/`, `catacombs-security.json`, or `catacombs-security/` — blocked at every profile with user notification. Files under `.ssh/` cannot be read or modified except **reading** `*.pub` keys.
+
+### Profiles
+
+| Profile | Summary |
+|---------|---------|
+| `low` | Ask before most shell actions; hard-block guard policy, container escape, writes outside `/repos`; ask on agent config writes (shell) and symlinks |
+| `medium` (default) | Same ask-default model as `low` |
+| `high` | Blocks network egress, HTTP tools, credentials, secrets, destructive commands, and agent config writes; re-enabled `file_write_outside_repos` |
+| `extreme` | Same blocks as `high`; asks before subagent spawn |
+| `you-shall-not-pass` | Maximum hook enforcement: network (incl. DB clients, `git`/`gh`), subagents, agent config, reads outside `/repos`, symlinks, writes outside `/repos` |
+
+Per-KV profile mapping and residual risks: [guard profile resolution matrix](docs/security-recommendations.md#guard-profile-resolution-matrix).
+
+Select the active profile in `.devcontainer/home/.cursor/catacombs-security.json` (overlay-mounted at `~/.cursor/catacombs-security.json`):
+
+```json
+{
+  "version": 1,
+  "active_profile": "medium",
+  "overrides": {}
+}
+```
+
+Per-category overrides (`action`: `block` | `ask` | `allow`; `notify`: `true`) merge on top of the profile without editing profile files.
+
+### `.env` and secret values
+
+The `secret_values` category is **enabled at every level**. On `low`/`medium`, shell access to secrets is **ask**; direct file reads (`beforeReadFile`, `Read`/`Grep`) are **denied** because Cursor cannot prompt on those hooks. On `high` and above, secret access is blocked outright. Violations emit `user_message` + `agent_message` (blocks) and an audit line to `~/.cursor/catacombs-security-audit.log` (names/paths only — never values).
+
+### Hook vs kernel layers
+
+| Layer | Role |
+|-------|------|
+| **IDE hooks** (shipped) | Path-aware rules, `.env` blocking, ask/block UX, audit log — `hooks.json` resolves `catacombs-hook.sh` from `.cursor/hooks/` first, then `~/.cursor/hooks/` |
+| **gVisor + seccomp** (optional) | Syscall reduction — gVisor already enabled; seccomp documented in [security-recommendations](docs/security-recommendations.md) |
+| **Host egress firewall** (optional) | Network deny/allowlist on the Docker bridge |
+
+Hooks are the primary enforcement layer; kernel/host hardening is complementary. See [docs/security-recommendations.md](docs/security-recommendations.md) for optional complements and read-only mount guidance.
+
+### Run guard tests
+
+Run from the **host** (agents cannot read the hooks directory):
+
+```bash
+python3 -m unittest discover -s .devcontainer/home/.cursor/hooks -p 'test_*.py' -v
+```
+
+GitHub Actions runs the same command on pull requests.
+
+Rebuild the devcontainer after mount changes.
+
 ## Agent tooling
 
 Cursor agents in this sandbox follow rules in `.cursor/rules/`:
 
 | Rule | Purpose |
 |------|---------|
-| `catacumbs.mdc` | Environment constraints (no Docker in sandbox, networking, resource limits) |
+| `catacombs.mdc` | Environment constraints (no Docker in sandbox, networking, resource limits) |
 | `ponytail.mdc` | Minimal-diff coding style |
 | `serena-use.mdc` | Serena MCP for PHP symbol navigation and edits |
 | `ironbee-devtools-use.mdc` | Browser verification via IronBee DevTools |
@@ -186,7 +247,7 @@ in `.devcontainer/devcontainer.json` (under `customizations.vscode.settings`) or
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
-| `CATACUMBS` | `1` | Marks the catacumbs sandbox |
+| `CATACOMBS` | `1` | Marks the catacombs sandbox |
 
 ## Known vulnerabilities
 
@@ -197,17 +258,17 @@ The sandbox limits Docker and root access, but an agent still has **intentional 
 | **Bind mounts** | `repos/`, `.cursor/`, `.agents/`, and `.ssh/` are read-write on the host — no container escape needed |
 | **SSH keys** | The mounted private key can push to repos and `ssh` to remote hosts |
 | **Host services** | `host.docker.internal` reaches databases and APIs exposed on the host |
-| **Persistence** | Agents can modify rules, skills, and MCP config for future sessions |
+| **Persistence** | Agents can modify rules, skills, and MCP config for future sessions; `agent_config` blocks writes at `high`+; guard hooks/config are read-only overlays |
 
-The container runs with Docker's **default capability set** (no `--cap-add=all`) under gVisor.
+The container runs with Docker's **default capability set** (no `--cap-add=all`) under gVisor. Set `active_profile` to `you-shall-not-pass` in `catacombs-security.json` for maximum hook enforcement (see matrix in security recommendations).
 
 Full write-up and mitigations:
 
-- [docs/known-vulnerabilities.md](docs/known-vulnerabilities.md) — threat catalog (KV-01 … KV-09)
-- [docs/security-recommendations.md](docs/security-recommendations.md) — how to address each vulnerability
+- [docs/known-vulnerabilities.md](docs/known-vulnerabilities.md) — threat catalog (KV-01 … KV-09) with guard profile and residual-risk columns
+- [docs/security-recommendations.md](docs/security-recommendations.md) — mitigations and [guard profile resolution matrix](docs/security-recommendations.md#guard-profile-resolution-matrix)
 
 ## Further reading
 
-- `.cursor/rules/catacumbs.mdc` — full environment rules for agents
+- `.cursor/rules/catacombs.mdc` — full environment rules for agents
 - `.cursor/rules/serena-use.mdc` — Serena MCP usage
 - `.cursor/rules/ironbee-devtools-use.mdc` — IronBee DevTools browser verification

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "[ -e /etc/catacombs-container ] || { printf '%s\\n' '{\"permission\":\"allow\"}'; exit 0; }; bash /home/agent/.cursor/hooks/catacombs-hook.sh guard",
+        "failClosed": true
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "[ -e /etc/catacombs-container ] || { printf '%s\\n' '{\"permission\":\"allow\"}'; exit 0; }; bash /home/agent/.cursor/hooks/catacombs-hook.sh guard",
+        "failClosed": true
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "[ -e /etc/catacombs-container ] || { printf '%s\\n' '{\"permission\":\"allow\"}'; exit 0; }; bash /home/agent/.cursor/hooks/catacombs-hook.sh guard",
+        "failClosed": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "[ -e /etc/catacombs-container ] || { printf '%s\\n' '{\"permission\":\"allow\"}'; exit 0; }; bash /home/agent/.cursor/hooks/catacombs-hook.sh guard",
+        "matcher": "WebFetch|WebSearch|Read|Grep|Glob|Write|StrReplace|Delete|EditNotebook|Shell|CallDynamicTool|CallMcpTool",
+        "failClosed": true
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "[ -e /etc/catacombs-container ] || { printf '%s\\n' '{}'; exit 0; }; bash /home/agent/.cursor/hooks/catacombs-hook.sh audit",
+        "matcher": "Read|Grep|Shell"
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "[ -e /etc/catacombs-container ] || { printf '%s\\n' '{}'; exit 0; }; bash /home/agent/.cursor/hooks/catacombs-hook.sh audit"
+      }
+    ]
+  }
+}

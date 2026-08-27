@@ -1,0 +1,22 @@
+{
+  "id": "you-shall-not-pass",
+  "label": "You Shall Not Pass",
+  "description": "Maximum hook enforcement: blocks network, subagents, agent config, reads outside /repos, symlinks, and writes outside /repos.",
+  "categories": {
+    "guard_policy": { "enabled": true, "action": "block", "notify": true },
+    "ssh_dir": { "enabled": true, "action": "block", "notify": true },
+    "secret_values": { "enabled": true, "action": "block", "notify": true },
+    "credential_access": { "enabled": true, "action": "block", "notify": true },
+    "agent_config": { "enabled": true, "action": "block", "notify": true },
+    "file_read_outside_repos": { "enabled": true, "action": "block", "notify": true },
+    "symlink_escape": { "enabled": true, "action": "block", "notify": true },
+    "destructive_fs": { "enabled": true, "action": "block", "notify": true },
+    "privilege_escalation": { "enabled": true, "action": "block", "notify": true },
+    "container_escape": { "enabled": true, "action": "block", "notify": true },
+    "git_destructive": { "enabled": true, "action": "block", "notify": true },
+    "network_egress": { "enabled": true, "action": "block", "notify": true },
+    "http_tools": { "enabled": true, "action": "block", "notify": true },
+    "subagent_spawn": { "enabled": true, "action": "block", "notify": true },
+    "file_write_outside_repos": { "enabled": true, "action": "block", "notify": true }
+  }
+}

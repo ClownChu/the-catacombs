@@ -1,0 +1,10 @@
+.agents/skills/*
+!.agents/skills/.gitkeep
+
+.devcontainer/home/.ssh/*
+!.devcontainer/home/.ssh/known_hosts
+
+.devcontainer/home/.cursor/hooks/__pycache__
+
+repos/*
+!repos/.gitkeep
