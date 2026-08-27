@@ -92,6 +92,11 @@ RUN source $HOME/.zshrc \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Image sentinel: hooks enforce only when this root-owned marker exists (not bind-mountable).
+RUN printf 'catacombs\n' > /etc/catacombs-container \
+    && chmod 0444 /etc/catacombs-container \
+    && chown root:root /etc/catacombs-container
+
 # Set default user
 USER $USERNAME
 

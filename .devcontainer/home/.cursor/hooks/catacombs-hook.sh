@@ -2,6 +2,14 @@
 # Catacombs hook entrypoint — exec python3 guard|audit with hook name from CATACOMBS_HOOK.
 set -euo pipefail
 
+if [ ! -e /etc/catacombs-container ]; then
+  case "${1:-}" in
+    audit) printf '%s\n' '{}' ;;
+    *) printf '%s\n' '{"permission":"allow"}' ;;
+  esac
+  exit 0
+fi
+
 MODE="${1:-}"
 if [ -z "$MODE" ]; then
   printf '%s\n' '{"permission":"deny","user_message":"Catacombs hook entrypoint: missing mode (guard|audit)."}'
@@ -10,9 +18,8 @@ fi
 
 SCRIPT=""
 for p in \
-  "${HOME}/.cursor/hooks/catacombs_guard.py" \
-  "${CURSOR_PROJECT_DIR:-}/.devcontainer/home/.cursor/hooks/catacombs_guard.py" \
-  ".cursor/hooks/catacombs_guard.py"; do
+  "/home/agent/.cursor/hooks/catacombs_guard.py" \
+  "./.cursor/hooks/catacombs_guard.py"; do
   if [ -f "$p" ]; then
     SCRIPT="$p"
     break

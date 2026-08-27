@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import json
 import io
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -26,6 +29,8 @@ from catacombs_guard import (  # noqa: E402
 )
 
 CONFIG_ROOT = Path(__file__).resolve().parent.parent
+HOOK_SCRIPT = Path(__file__).resolve().parent / "catacombs-hook.sh"
+SENTINEL = Path("/etc/catacombs-container")
 ALL_PROFILES = ["low", "medium", "high", "extreme", "you-shall-not-pass"]
 
 SCENARIOS = [
@@ -177,6 +182,41 @@ def assert_guard_result(test: unittest.TestCase, result: GuardResult, expect: di
         test.assertIn("Operation:", payload["user_message"])
         test.assertIn("Target:", payload["user_message"])
         test.assertIn("Intention:", payload["user_message"])
+
+
+def _run_hook_subprocess(mode: str, *, path_prefix: str | None = None) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    if path_prefix is not None:
+        env["PATH"] = f"{path_prefix}:{env.get('PATH', '')}"
+    return subprocess.run(
+        ["bash", str(HOOK_SCRIPT), mode],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+
+@unittest.skipIf(SENTINEL.exists(), "sentinel present (container image)")
+class TestContainerSentinelGate(unittest.TestCase):
+    def test_sentinel_absent_guard_allows(self):
+        result = _run_hook_subprocess("guard")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {"permission": "allow"})
+
+    def test_sentinel_absent_audit_empty_json(self):
+        result = _run_hook_subprocess("audit")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {})
+
+    def test_sentinel_absent_with_fake_id_still_skips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_id = Path(tmp) / "id"
+            fake_id.write_text("#!/bin/sh\nprintf 'root\\n'\n", encoding="utf-8")
+            fake_id.chmod(0o755)
+            result = _run_hook_subprocess("guard", path_prefix=tmp)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {"permission": "allow"})
 
 
 class TestGuardMainScenarios(unittest.TestCase):

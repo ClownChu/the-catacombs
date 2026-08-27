@@ -162,7 +162,7 @@ Each vulnerability maps to a **minimum guard profile** for hook-level mitigation
 
 ## Catacombs security guard (IDE hooks)
 
-**Layer 1** enforcement ships with the repo. Canonical sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only onto `~/.cursor/` for hooks and security config. `hooks.json` resolves `catacombs-hook.sh` from **`.cursor/hooks/`** (workspace-relative) first, then **`~/.cursor/hooks/`**; the entrypoint `exec`s `catacombs_guard.py` with `guard` or `audit`. Missing scripts fail closed. The guard loads the active profile from `catacombs-security.json`, level files from `catacombs-security/profiles/`, and shared patterns from `catacombs-security/categories.json`.
+**Layer 1** enforcement ships with the repo; hooks are a no-op unless the root-owned image sentinel `/etc/catacombs-container` exists. Canonical sources live under **`.devcontainer/home/.cursor/`** and are overlay-mounted read-only onto `~/.cursor/` for hooks and security config. `hooks.json` resolves `catacombs-hook.sh` from **`.cursor/hooks/`** (workspace-relative) first, then **`~/.cursor/hooks/`**; the entrypoint `exec`s `catacombs_guard.py` with `guard` or `audit`. Missing scripts fail closed. The guard loads the active profile from `catacombs-security.json`, level files from `catacombs-security/profiles/`, and shared patterns from `catacombs-security/categories.json`.
 
 | Hook | Purpose |
 |------|---------|
