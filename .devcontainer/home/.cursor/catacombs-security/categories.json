@@ -122,7 +122,18 @@
       "\\$_ENV\\b(?!\\s*\\[)",
       "\\bprocess\\.env\\b(?!\\.)",
       "Object\\.keys\\s*\\(\\s*process\\.env",
-      "\\bgetenv\\s*\\(\\s*\\)"
+      "\\bgetenv\\s*\\(\\s*\\)",
+      "from\\s+os\\s+import\\s+environ",
+      "from\\s+posix\\s+import\\s+environ",
+      "posix\\.environ",
+      "(?<![\\w.])environ\\s*\\.\\s*keys\\s*\\(",
+      "len\\s*\\(\\s*(?:os\\.)?environ\\s*\\)",
+      "importlib\\.import_module\\s*\\(\\s*['\"]os['\"]\\s*\\)\\s*\\.\\s*environ",
+      "os\\.__dict__\\s*\\[\\s*['\"]environ['\"]\\s*\\]",
+      "os\\.__dict__\\s*\\.\\s*get\\s*\\(\\s*['\"]environ['\"]\\s*\\)",
+      "vars\\s*\\(\\s*os\\s*\\)\\s*\\[\\s*['\"]environ['\"]\\s*\\]",
+      "__getattribute__\\s*\\(\\s*['\"]environ['\"]\\s*\\)",
+      "object\\.__getattribute__\\s*\\(\\s*os\\s*,\\s*['\"]environ['\"]\\s*\\)"
     ],
     "env_access_code_patterns": [
       "process\\.env(\\.\\w+|\\[)",

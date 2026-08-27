@@ -57,6 +57,14 @@ _TEMPFILE_WRITE_API = re.compile(
 )
 _DEV_SINKS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr"})
 SSH_PATH_RE = re.compile(r"(?:^|[/\s'\"~])\.ssh(?:/|\b)")
+_SOURCE_SCRIPT_SUFFIXES = frozenset(
+    {".py", ".js", ".mjs", ".cjs", ".php", ".sh", ".bash", ".zsh"}
+)
+
+
+def _is_source_script_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lower()
+    return any(normalized.endswith(suffix) for suffix in _SOURCE_SCRIPT_SUFFIXES)
 
 
 def _tokenize_shell_args(args: str) -> list[str]:
@@ -120,6 +128,8 @@ def interpreter_write_paths(command: str) -> list[str]:
             continue
         start = match.start(1) if match.group(1) else match.start(2)
         if _path_inside_url(command, start):
+            continue
+        if _is_source_script_path(path):
             continue
         paths.append(path)
     return paths

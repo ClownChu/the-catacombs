@@ -166,7 +166,7 @@ Each vulnerability maps to a **minimum guard profile** for hook-level mitigation
 
 | Hook | Purpose |
 |------|---------|
-| `beforeShellExecution` | Command patterns, `.env`, sensitive env vars |
+| `beforeShellExecution` | Command patterns, `.env`, sensitive env vars (argv + inlined script bodies for interpreter+file invocations) |
 | `beforeMCPExecution` | MCP network tools |
 | `preToolUse` | WebFetch, WebSearch, Read/Grep on sensitive paths |
 | `beforeReadFile` | Direct file reads (path only — content never logged) |

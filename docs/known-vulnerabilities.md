@@ -172,11 +172,13 @@ Pre-installed tooling includes `git`, `gh`, `npm`, `npx`, `composer`, `pipx`, `u
 **Severity:** Low–Medium  
 **Container escape required:** No
 
-The guard classifies shell commands from **argv text only** — it does not execute Python/JS/PHP, decode base64, or evaluate computed paths. `normalize_command_obfuscation()` folds adjacent string concatenation (`'a'+'b'`), `chr()` / `String.fromCharCode()`, and `\xNN` hex escapes so split-string and `chr(47)+'tmp'` probes hit existing matchers.
+The guard classifies shell commands from **argv text plus inlined executed script bodies** (up to 64 KiB per file). For `python3|node|php|bash` invocations whose first non-option argument is a script path, `guard_scripts.py` resolves the path (including symlink targets), appends the resolved path to the classified string, and folds the script body through `normalize_command_obfuscation()` unless the resolved path already matches `.env`, `.ssh`, or guard-policy globs (path-only classification, no secret bytes read). One-hop `exec(open("…"))` and `readFileSync("…")` helpers are inlined the same way.
 
-**Residual bypasses:** base64-wrapped payloads, fully computed paths with no concat/`chr` in argv, ctypes/syscall-based writes, and interpreter one-liners that never mention a policy path or outside prefix in the command string.
+`normalize_command_obfuscation()` folds adjacent string concatenation (including mixed-quote `+`), single- and multi-arg `chr()` / `String.fromCharCode()` / `fromCodePoint()`, integer codepoint lists (`bytes([…])`, `''.join(chr(c) for c in […])`), reverse slices, hex/base64/`codecs.decode` literals, `\xNN` hex escapes, and env-access aliases (`getattr` / `__getattribute__` / `__dict__` / `vars(os)` / `importlib.import_module('os').environ` → `os.environ`) so split-string and encoded probes hit path-based matchers.
 
-**Guard mitigation:** Partial — concat/chr normalization covers audit probes 1.5, 2.9, 3.16, 5.5, 15.14–15.17. No read-only `/tmp` or interpreter wrappers (those break normal `-c` use).
+**Residual bypasses:** import-graph following, XOR/zlib/rot13 wrappers, ctypes/syscall-based writes, paths built only from computed variables with no decodable literals in argv or inlined bodies, and encodings with no visible literal.
+
+**Guard mitigation:** Partial — concat/chr/hex/base64/int-list/reverse/`fromCharCode` normalization covers audit-6 `.env` probes plus helper-script argv bypasses from audit 7. Shell env-file detection uses the same path globs as Read, not a same-line interpreter regex. No read-only `/tmp` or interpreter wrappers (those break normal `-c` use).
 
 ---
 

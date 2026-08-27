@@ -108,6 +108,7 @@ On first build the image is created from `.devcontainer/Dockerfile`. Bind mounts
 | Host path | Container path |
 |-----------|----------------|
 | `repos/` | `/repos` (workspace) |
+| `.catacombs-test/` | `/repos/.catacombs-test` (read-only overlay) |
 | `.cursor/` | `/home/agent/.cursor` (writable — rules, MCP, settings) |
 | `.devcontainer/home/.cursor/hooks` | `/home/agent/.cursor/hooks` (read-only overlay) |
 | `.devcontainer/home/.cursor/hooks.json` | `/home/agent/.cursor/hooks.json` (read-only overlay) |

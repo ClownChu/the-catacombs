@@ -150,6 +150,133 @@ GUARD_MAIN_SCENARIOS = [
     {"id": "node_fetch_deferred", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"fetch('https://example.com')\""}}, "expect": {"permission": "allow", "message_excludes": "write outside"}},
 ]
 
+AUDIT6_ENV_SCENARIOS = [
+    {
+        "id": "chr46_env_prefix",
+        "command": "python3 -c \"open('/repos/app/'+chr(46)+'env')\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+    },
+    {
+        "id": "hex_env_prefix",
+        "command": "python3 -c \"open('/repos/app/'+bytes.fromhex('2e656e76'))\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+    },
+    {
+        "id": "b64_env_prefix",
+        "command": "python3 -c \"open('/repos/app/'+base64.b64decode('LmVudg=='))\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+    },
+    {
+        "id": "join_chr_list",
+        "command": "python3 -c \"open(''.join(chr(c) for c in [46,101,110,118]))\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+    },
+    {
+        "id": "reverse_slice_env",
+        "command": "python3 -c \"open('vne.'[::-1])\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+    },
+    {
+        "id": "from_char_code_env",
+        "command": "node -e \"require('fs').readFileSync(String.fromCharCode(46,101,110,118))\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+    },
+    {
+        "id": "multiline_python_env",
+        "command": "python3 -c \"\nopen('/repos/app/.env')\n\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+    },
+    {
+        "id": "env_example_shell_allowed",
+        "command": "python3 -c \"open('/repos/app/.env.example')\"",
+        "expect": {"permission": "allow"},
+    },
+    {
+        "id": "echo_home_allowed",
+        "command": "echo $HOME",
+        "expect": {"permission": "allow"},
+    },
+]
+
+AUDIT7_ARGV_ALIASES = [
+    {
+        "id": "hex_getattr_environ",
+        "command": "python3 -c \"import os; getattr(os, bytes.fromhex('656e7669726f6e'))\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "from_os_import_environ",
+        "command": "python3 -c \"from os import environ\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "posix_environ",
+        "command": "python3 -c \"import posix; posix.environ\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "from_posix_import_environ",
+        "command": "python3 -c \"from posix import environ\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "import_os_as_o",
+        "command": "python3 -c \"import os as o; o.environ\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "os_dict_environ",
+        "command": "python3 -c \"import os; os.__dict__['environ']\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "vars_os_environ",
+        "command": "python3 -c \"import os; vars(os)['environ']\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "importlib_os_environ",
+        "command": "python3 -c \"import importlib; importlib.import_module('os').environ\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "reverse_getattribute",
+        "command": "python3 -c \"import os; os.__getattribute__('norivne'[::-1])\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "reverse_dict_get",
+        "command": "python3 -c \"import os; os.__dict__.get('norivne'[::-1])\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "object_getattribute",
+        "command": "python3 -c \"import os; object.__getattribute__(os, 'norivne'[::-1])\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+    {
+        "id": "codecs_decode_getattr",
+        "command": "python3 -c \"import os,codecs; getattr(os, codecs.decode('656e7669726f6e', 'hex'))\"",
+        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+    },
+]
+
+
+def _evaluate_shell(command: str, profile_id: str = "low") -> GuardResult:
+    with patch("catacombs_guard.write_audit"):
+        return evaluate(
+            {"hook": "beforeShellExecution", "command": command},
+            profile_id=profile_id,
+            overrides={},
+            config_root=CONFIG_ROOT,
+        )
+
+
+def _write_probe_script(tmp: Path, name: str, body: str) -> Path:
+    path = tmp / name
+    path.write_text(body, encoding="utf-8")
+    return path
+
 
 def _run_guard(payload: dict) -> dict:
     with patch("sys.stdin", io.StringIO(json.dumps(payload))):
@@ -217,6 +344,236 @@ class TestContainerSentinelGate(unittest.TestCase):
             result = _run_hook_subprocess("guard", path_prefix=tmp)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout), {"permission": "allow"})
+
+
+class TestAudit6EnvProbes(unittest.TestCase):
+    def test_audit6_env_obfuscation_probes(self):
+        for row in AUDIT6_ENV_SCENARIOS:
+            with self.subTest(scenario_id=row["id"]):
+                with patch("catacombs_guard.write_audit"):
+                    result = evaluate(
+                        {"hook": "beforeShellExecution", "command": row["command"]},
+                        profile_id="low",
+                        overrides={},
+                        config_root=CONFIG_ROOT,
+                    )
+                assert_guard_result(self, result, row["expect"])
+
+    def test_audit6_chr46_evaluate_secret_values(self):
+        with patch("catacombs_guard.write_audit"):
+            result = evaluate(
+                {
+                    "hook": "beforeShellExecution",
+                    "command": "python3 -c \"open('/repos/app/'+chr(46)+'env')\"",
+                },
+                profile_id="medium",
+                overrides={},
+                config_root=CONFIG_ROOT,
+            )
+        self.assertEqual(result.permission, "deny")
+        self.assertEqual(result.category, "secret_values")
+        self.assertEqual(result.subtype, "env_file")
+
+    def test_audit6_multiline_evaluate_secret_values(self):
+        with patch("catacombs_guard.write_audit"):
+            result = evaluate(
+                {
+                    "hook": "beforeShellExecution",
+                    "command": "python3 -c \"\nopen('/repos/app/.env')\n\"",
+                },
+                profile_id="medium",
+                overrides={},
+                config_root=CONFIG_ROOT,
+            )
+        self.assertEqual(result.permission, "deny")
+        self.assertEqual(result.category, "secret_values")
+        self.assertEqual(result.subtype, "env_file")
+
+
+class TestAudit7HelperScripts(unittest.TestCase):
+    def test_audit7_argv_env_aliases(self):
+        for row in AUDIT7_ARGV_ALIASES:
+            with self.subTest(scenario_id=row["id"]):
+                result = _evaluate_shell(row["command"])
+                assert_guard_result(self, result, row["expect"])
+
+    def test_audit7_helper_script_denies(self):
+        cases = [
+            (
+                "policy_open",
+                "probe_policy.py",
+                "open('/home/agent/.cursor/catacombs-security.json')",
+                {"permission": "deny", "category": "guard_policy"},
+            ),
+            (
+                "ssh_known_hosts",
+                "probe_ssh_hosts.py",
+                "open('/home/agent/.ssh/known_hosts')",
+                {"permission": "deny", "category": "ssh_dir"},
+            ),
+            (
+                "ssh_id_rsa",
+                "probe_ssh_key.py",
+                "open('/home/agent/.ssh/id_rsa')",
+                {"permission": "deny", "category": "ssh_dir"},
+            ),
+            (
+                "ssh_config",
+                "probe_ssh_cfg.py",
+                "open('/home/agent/.ssh/config')",
+                {"permission": "deny", "category": "ssh_dir"},
+            ),
+            (
+                "repos_dotvars",
+                "probe_dotvars.py",
+                "open('/repos/site-remake/.env')",
+                {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+            ),
+            (
+                "nested_dotvars",
+                "probe_nested.py",
+                "open('/repos/app/nested/.env')",
+                {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+            ),
+            (
+                "from_os_keys",
+                "probe_keys.py",
+                "from os import environ\nprint(list(environ.keys()))",
+                {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+            ),
+            (
+                "hooks_json",
+                "probe_hooks.py",
+                "open('/home/agent/.cursor/hooks.json')",
+                {"permission": "deny", "category": "guard_policy"},
+            ),
+            (
+                "listdir_hooks",
+                "probe_listdir.py",
+                "import os\nos.listdir('/home/agent/.cursor/hooks')",
+                {"permission": "deny", "category": "guard_policy"},
+            ),
+            (
+                "guard_source",
+                "probe_guard_src.py",
+                "open('/home/agent/.cursor/hooks/catacombs_guard.py')",
+                {"permission": "deny", "category": "guard_policy"},
+            ),
+            (
+                "write_tmp_python",
+                "probe_write_py.py",
+                "from pathlib import Path\nPath('/tmp/audit7_probe_py.txt').write_text('x')",
+                {"permission": "deny", "category": "file_write_outside_repos"},
+            ),
+            (
+                "write_tmp_node",
+                "probe_write_js.js",
+                "require('fs').writeFileSync('/tmp/audit7_probe_js.txt','x')",
+                {"permission": "deny", "category": "file_write_outside_repos"},
+            ),
+            (
+                "write_tmp_php",
+                "probe_write_php.php",
+                "file_put_contents('/tmp/audit7_probe_php.txt','x');",
+                {"permission": "deny", "category": "file_write_outside_repos"},
+            ),
+            (
+                "netrc_credential",
+                "probe_netrc.py",
+                "open('/home/agent/.netrc')",
+                {"permission": "deny", "category": "credential_access"},
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            for scenario_id, filename, body, expect in cases:
+                with self.subTest(scenario_id=scenario_id):
+                    helper = _write_probe_script(tmp_path, filename, body)
+                    if filename.endswith(".js"):
+                        cmd = f"node {helper}"
+                    elif filename.endswith(".php"):
+                        cmd = f"php {helper}"
+                    elif filename.endswith(".sh"):
+                        cmd = f"bash {helper}"
+                    else:
+                        cmd = f"python3 {helper}"
+                    result = _evaluate_shell(cmd)
+                    assert_guard_result(self, result, expect)
+
+    def test_audit7_exec_open_helper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            helper = _write_probe_script(
+                tmp_path,
+                "probe_exec.py",
+                "open('/home/agent/.cursor/catacombs-security.json')",
+            )
+            cmd = f"python3 -c \"exec(open('{helper}').read())\""
+            result = _evaluate_shell(cmd)
+            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.category, "guard_policy")
+
+    def test_audit7_symlink_helper_resolved_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            dotvars = tmp_path / ".env"
+            dotvars.write_text("SECRET=1\n", encoding="utf-8")
+            link = tmp_path / "lnk_probe.py"
+            link.symlink_to(dotvars)
+            result = _evaluate_shell(f"python3 {link}")
+            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.category, "secret_values")
+            self.assertEqual(result.subtype, "env_file")
+
+    def test_audit7_node_readfile_helper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            helper = _write_probe_script(
+                tmp_path,
+                "probe_read.js",
+                "require('fs').readFileSync('/repos/site-remake/.env')",
+            )
+            result = _evaluate_shell(f"node {helper}")
+            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.category, "secret_values")
+            self.assertEqual(result.subtype, "env_file")
+
+    def test_audit7_bash_cat_helper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            helper = _write_probe_script(
+                tmp_path,
+                "probe_cat.sh",
+                "cat '/repos/site-remake/.env'",
+            )
+            result = _evaluate_shell(f"bash {helper}")
+            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.category, "secret_values")
+            self.assertEqual(result.subtype, "env_file")
+
+    def test_audit7_controls_allow(self):
+        controls = [
+            ("print_hi", "print('hi')", "python3"),
+            ("write_repos", "import shutil; shutil.copyfile('/repos/app/a.txt','/repos/app/b.txt')", "python3"),
+            ("getenv_port", "import os; os.getenv('PORT')", "python3"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            for scenario_id, body, interpreter in controls:
+                with self.subTest(scenario_id=scenario_id):
+                    helper = _write_probe_script(tmp_path, f"ctrl_{scenario_id}.py", body)
+                    result = _evaluate_shell(f"{interpreter} {helper}")
+                    self.assertEqual(result.permission, "allow")
+
+        allow_cmds = [
+            ("env_example_argv", "python3 -c \"open('/repos/app/.env.example')\""),
+            ("echo_home", "echo $HOME"),
+            ("echo_dev_null", "echo hi >/dev/null"),
+        ]
+        for scenario_id, command in allow_cmds:
+            with self.subTest(scenario_id=scenario_id):
+                result = _evaluate_shell(command)
+                self.assertEqual(result.permission, "allow")
 
 
 class TestGuardMainScenarios(unittest.TestCase):

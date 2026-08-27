@@ -44,6 +44,7 @@ The devcontainer workspace is **`/repos`**, which bind-mounts only the host `rep
 | Host path | Container path | Notes |
 |-----------|----------------|-------|
 | `repos/` | `/repos` | Workspace folder; module code lives here |
+| `.catacombs-test/` | `/repos/.catacombs-test` | Read-only test fixtures overlay |
 | `.cursor/` | `/home/agent/.cursor` | Cursor config (rules, skills) |
 | `.agents/` | `/home/agent/.agents` | Agent skills |
 | `.devcontainer/home/.ssh/` | `/home/agent/.ssh` | SSH keys for git |

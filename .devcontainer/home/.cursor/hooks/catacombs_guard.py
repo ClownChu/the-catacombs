@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from guard_obfuscation import normalize_command_obfuscation
+from guard_scripts import enrich_shell_command
 from guard_secrets import (
+    _extract_shell_path_candidates,
     _var_name_sensitive,
     detect_secret_values_path,
     detect_secret_values_shell,
@@ -423,6 +425,43 @@ def _intention(
     return str(cat_def.get("intention", f"perform {category.replace('_', ' ')}"))
 
 
+def _skip_script_body_path(path: str, categories_def: dict[str, Any]) -> bool:
+    """Skip reading script bodies when the resolved path alone is policy-sensitive."""
+    normalized = normalize_path(path)
+    secret_def = categories_def.get("secret_values", {})
+    env_paths = secret_def.get("env_file_paths", [])
+    env_excludes = secret_def.get("env_file_path_exclude", [])
+    if path_matches_any(normalized, env_paths) and not path_matches_any(
+        normalized, env_excludes
+    ):
+        return True
+    ssh_def = categories_def.get("ssh_dir", {})
+    ssh_patterns = ssh_def.get("path_patterns", [])
+    ssh_exclude = ssh_def.get("path_exclude", [])
+    if path_matches_any(normalized, ssh_patterns) and not path_matches_any(
+        normalized, ssh_exclude
+    ):
+        return True
+    policy_def = categories_def.get("guard_policy", {})
+    if path_matches_any(normalized, policy_def.get("path_patterns", [])):
+        return True
+    return False
+
+
+def _enrich_shell_event_command(
+    event: dict[str, Any],
+    command: str,
+    categories_def: dict[str, Any],
+) -> str:
+    cwd = str(event.get("cwd") or _tool_input(event).get("cwd") or "")
+    folded = normalize_command_obfuscation(command)
+    return enrich_shell_command(
+        folded,
+        cwd=cwd or None,
+        skip_body_for_path=lambda path: _skip_script_body_path(path, categories_def),
+    )
+
+
 def _shell_excluded(command: str, cat_def: dict[str, Any]) -> bool:
     return _regex_any(command, cat_def.get("shell_exclude_patterns", []))
 
@@ -640,6 +679,11 @@ def match_path(
                 return None
             if _regex_any(cmd, cat_def.get("shell_patterns", [])):
                 return ("credential", "shell credential access")
+            for candidate in _extract_shell_path_candidates(cmd):
+                normalized = normalize_path(candidate)
+                if normalized and path_hit(normalized):
+                    return ("credential", normalized)
+            return None
     return None
 
 
@@ -663,7 +707,9 @@ def match_secrets(
             if hit:
                 return hit
     if hook == "beforeShellExecution" and "command" in event:
-        hit = detect_secret_values_shell(str(event.get("command") or ""), cat_def)
+        hit = detect_secret_values_shell(
+            str(event.get("command") or ""), cat_def, path_matches_any
+        )
         if hit:
             return hit
     return None
@@ -815,7 +861,9 @@ def evaluate(
     if event.get("command"):
         event = {
             **event,
-            "command": normalize_command_obfuscation(str(event["command"])),
+            "command": _enrich_shell_event_command(
+                event, str(event["command"]), categories_def
+            ),
         }
 
     merged = merge_category_settings(profile, user_overrides)
