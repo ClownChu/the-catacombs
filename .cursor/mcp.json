@@ -8,9 +8,9 @@
         "serena",
         "start-mcp-server",
         "--context",
-        "ide-assistant",
+        "ide",
         "--project",
-        "$(pwd)"
+        "${workspaceFolder}"
       ]
     }
   }

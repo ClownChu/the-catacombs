@@ -27,7 +27,8 @@
         "aswinkumar863.smarty-template-support",
         "DotJoshJohnson.xml",
         "ms-edgedevtools.vscode-edge-devtools",
-        "ironbee-ai.ironbee-devtools-vscode"
+        "ironbee-ai.ironbee-devtools-vscode",
+        "rust-lang.rust-analyzer"
       ],
       "settings": {
         "cursor.chat.autoRun": false
@@ -35,7 +36,10 @@
     }
   },
   "remoteEnv": {
-    "CATACOMBS": "1"
+    "CATACOMBS": "1",
+    "DEVENV_HOST": "host.docker.internal",
+    "DEVENV_ROOT": "/devenv",
+    "DEVENV_BRIDGE_PATH": "/devenv/bridge/devenv-bridge.php"
   },
   "remoteUser": "agent",
   "features": {
@@ -51,10 +55,18 @@
       "version": "latest"
     },
     "ghcr.io/rails/devcontainer/features/postgres-client:1.2.0": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {}
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "latest",
+      "profile": "minimal"
+    }
   },
   "mounts": [
+    "source=${localWorkspaceFolder}/devenv/client,target=/devenv/client,type=bind",
+    "source=${localWorkspaceFolder}/devenv/docs,target=/devenv/docs,type=bind",
+    
     "source=${localWorkspaceFolder}/.devcontainer/home/.ssh,target=/home/agent/.ssh,type=bind",
+    "source=${localWorkspaceFolder}/.devcontainer/home/.serena,target=/home/agent/.serena,type=bind",
     "source=${localWorkspaceFolder}/skills-lock.json,target=/home/agent/.skills-lock.json,type=bind",
     "source=${localWorkspaceFolder}/.agents,target=/home/agent/.agents,type=bind",
     "source=${localWorkspaceFolder}/.cursor,target=/home/agent/.cursor,type=bind",
@@ -67,7 +79,11 @@
   "postCreateCommand": {
     "ssh-permissions": "sudo chmod 600 /home/agent/.ssh/* 2>/dev/null || true && echo '\nif [ -f \"$HOME/.ssh/id_ed25519_github\" ] && ! ssh-add -l >/dev/null 2>&1; then\n  eval \"$(ssh-agent -s)\" >/dev/null\n  ssh-add \"$HOME/.ssh/id_ed25519_github\" 2>/dev/null || true\nfi' >> /home/agent/.zshrc",
     "playwright-install": "npm install -g playwright && npx playwright install",
-    "git-config": "git config --global user.name \"\" && git config --global user.email \"\"",
+    "devenv-install": "cd /devenv/client && npm install",
+    "git-config": "git config --global user.name \"Primo do Clown\" && git config --global user.email \"clownprimo@webvizo.com\"",
     "cursor-symlinks": "ln -sf /home/agent/.cursor/rules/* /repos/.cursor/rules"
+  },
+  "postStartCommand": {
+    "devenv-check": "curl -sf http://host.docker.internal:9876/status >/dev/null 2>&1 || echo '[devenv] Host control API not reachable. On the host run: cd devenv/server && node bin/devenv-host.js serve'"
   }
 }

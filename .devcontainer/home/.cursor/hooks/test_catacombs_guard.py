@@ -19,10 +19,12 @@ from catacombs_guard import (  # noqa: E402
     DEFAULT_PROFILE,
     GuardResult,
     apply_ask_deferral,
+    audit_main,
     dispatch_pretooluse,
     evaluate,
     evaluate_audit,
     guard_main,
+    hooks_enabled,
     load_profile,
     merge_category_settings,
     normalize_hook_name,
@@ -34,26 +36,28 @@ SENTINEL = Path("/etc/catacombs-container")
 ALL_PROFILES = ["low", "medium", "high", "extreme", "you-shall-not-pass"]
 
 SCENARIOS = [
-    {"id": "L1", "profile": "low", "event": {"command": "rm -rf /tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
-    {"id": "L2", "profile": "low", "event": {"command": "sudo apt install foo", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "privilege_escalation"}},
-    {"id": "L3", "profile": "low", "event": {"command": "docker ps", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "container_escape", "notify": True}},
-    {"id": "L4", "profile": "low", "event": {"command": "git push --force", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "git_destructive"}},
+    {"id": "L1", "profile": "low", "event": {"command": "rm -rf /var/tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "file_write_outside_repos", "notify": True}},
+    {"id": "L1t", "profile": "low", "event": {"command": "rm -rf /tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
+    {"id": "L2", "profile": "low", "event": {"command": "sudo apt install foo", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
+    {"id": "L3", "profile": "low", "event": {"command": "docker ps", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "container_escape", "notify": True}},
+    {"id": "L4", "profile": "low", "event": {"command": "git push --force", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
     {"id": "L5", "profile": "low", "event": {"file_path": "/repos/app/.env", "content": "DB_PASSWORD=x", "hook": "beforeReadFile"}, "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"}},
     {"id": "L6", "profile": "low", "event": {"file_path": "/repos/app/.env.example", "content": "PORT=3000", "hook": "beforeReadFile"}, "expect": {"permission": "allow"}},
-    {"id": "L7", "profile": "low", "event": {"command": "cat .env", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file", "notify": True}},
-    {"id": "L8", "profile": "low", "event": {"command": "echo $DB_PASSWORD", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_var", "notify": True}},
-    {"id": "L9", "profile": "low", "event": {"command": "printenv", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump", "notify": True}},
-    {"id": "L10", "profile": "low", "event": {"command": "node -e 'console.log(process.env.API_KEY)'", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_var", "notify": True}},
+    {"id": "L7", "profile": "low", "event": {"command": "cat .env", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file", "notify": True}},
+    {"id": "L8", "profile": "low", "event": {"command": "echo $DB_PASSWORD", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_var", "notify": True}},
+    {"id": "L9", "profile": "low", "event": {"command": "printenv", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump", "notify": True}},
+    {"id": "L10", "profile": "low", "event": {"command": "node -e 'console.log(process.env.API_KEY)'", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_var", "notify": True}},
     {"id": "L11", "profile": "low", "event": {"command": "echo $NODE_ENV", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
     {"id": "L12", "profile": "low", "event": {"command": "ps aux", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
-    {"id": "L13", "profile": "low", "event": {"command": "curl https://example.com", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "network_egress"}},
-    {"id": "L14", "profile": "low", "event": {"command": "npm install lodash", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "network_egress"}},
+    {"id": "L13", "profile": "low", "event": {"command": "curl https://example.com", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
+    {"id": "L14", "profile": "low", "event": {"command": "npm install lodash", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
     {"id": "L15", "profile": "low", "event": {"tool_name": "WebFetch", "hook": "preToolUse"}, "expect": {"permission": "allow"}},
     {"id": "L16", "profile": "low", "event": {"file_path": "/home/agent/.ssh/id_ed25519", "content": "key", "hook": "beforeReadFile"}, "expect": {"permission": "deny", "category": "ssh_dir"}},
     {"id": "L17", "profile": "low", "event": {"tool_name": "Task", "hook": "preToolUse"}, "expect": {"permission": "allow"}},
-    {"id": "M1", "profile": "medium", "event": {"command": "rm -rf /tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
+    {"id": "M1", "profile": "medium", "event": {"command": "rm -rf /var/tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
+    {"id": "M1t", "profile": "medium", "event": {"command": "rm -rf /tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "allow"}},
     {"id": "M1b", "profile": "medium", "event": {"command": "rm /repos/app/foo", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "destructive_fs"}},
-    {"id": "M1c", "profile": "medium", "event": {"command": "rm /tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "file_write_outside_repos"}},
+    {"id": "M1c", "profile": "medium", "event": {"command": "rm /var/tmp/x", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "file_write_outside_repos"}},
     {"id": "M2", "profile": "medium", "event": {"command": "curl https://example.com", "hook": "beforeShellExecution"}, "expect": {"permission": "ask", "category": "network_egress"}},
     {"id": "M3", "profile": "medium", "event": {"file_path": "/repos/app/.env", "content": "DB_PASSWORD=x", "hook": "beforeReadFile"}, "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"}},
     {"id": "M4", "profile": "medium", "event": {"tool_name": "Read", "file_path": "/repos/app/.env.example", "hook": "preToolUse"}, "expect": {"permission": "allow"}},
@@ -73,7 +77,7 @@ SCENARIOS = [
     {"id": "E1", "profile": "extreme", "event": {"command": "curl https://example.com", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "network_egress", "notify": True}},
     {"id": "E2", "profile": "extreme", "event": {"tool_name": "Task", "hook": "preToolUse"}, "expect": {"permission": "allow"}},
     {"id": "Y1", "profile": "you-shall-not-pass", "event": {"tool_name": "Task", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "subagent_spawn", "notify": True}},
-    {"id": "Y2", "profile": "you-shall-not-pass", "event": {"tool_name": "Write", "file_path": "/tmp/outside.txt", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
+    {"id": "Y2", "profile": "you-shall-not-pass", "event": {"tool_name": "Write", "file_path": "/var/tmp/outside.txt", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
     {"id": "Y3", "profile": "you-shall-not-pass", "event": {"tool_name": "Write", "file_path": ".cursor/rules/catacombs.mdc", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "agent_config", "notify": True}},
     {"id": "Y4", "profile": "you-shall-not-pass", "event": {"tool_name": "Write", "file_path": ".agents/skills/foo/SKILL.md", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "agent_config", "notify": True}},
     {"id": "Y5", "profile": "you-shall-not-pass", "event": {"tool_name": "Write", "file_path": ".cursor/mcp.json", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "agent_config", "notify": True}},
@@ -83,35 +87,44 @@ SCENARIOS = [
     {"id": "Y9", "profile": "you-shall-not-pass", "event": {"command": "mysql -h host.docker.internal -u root", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "network_egress", "notify": True}},
     {"id": "Y10", "profile": "you-shall-not-pass", "event": {"command": "git push origin main", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "network_egress", "notify": True}},
     {"id": "Y11", "profile": "you-shall-not-pass", "event": {"command": "ln -s ../../.ssh evil", "hook": "beforeShellExecution"}, "expect": {"permission": "deny", "category": "symlink_escape", "notify": True}},
-    {"id": "H5", "profile": "high", "event": {"tool_name": "Write", "file_path": "/tmp/outside.txt", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
+    {"id": "H5", "profile": "high", "event": {"tool_name": "Write", "file_path": "/var/tmp/outside.txt", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "file_write_outside_repos", "notify": True}},
     {"id": "M14", "profile": "medium", "event": {"tool_name": "Write", "file_path": ".cursor/rules/catacombs.mdc", "hook": "preToolUse"}, "expect": {"permission": "deny", "category": "agent_config"}},
 ]
 
 GUARD_MAIN_SCENARIOS = [
-    {"id": "write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/tmp/audit-probe-write.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/tmp/audit-probe-write.txt"}}, "expect": {"permission": "allow"}},
+    {"id": "write_tmp_prefix_not_tmpfoo", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/tmpfoo/x"}}, "expect": {"permission": "deny"}},
+    {"id": "write_vartmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/var/tmp/audit-probe-write.txt"}}, "expect": {"permission": "deny"}},
     {"id": "write_home_agent", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/home/agent/audit-probe-write.txt"}}, "expect": {"permission": "deny"}},
     {"id": "write_etc", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/etc/audit-probe-write.txt"}}, "expect": {"permission": "deny"}},
-    {"id": "redirect_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "echo audit > /tmp/audit-probe-redirect.txt"}}, "expect": {"permission": "deny"}},
-    {"id": "rm_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm /tmp/audit-probe-missing"}}, "expect": {"permission": "deny"}},
-    {"id": "rm_rf_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm -rf /tmp/x"}}, "expect": {"permission": "deny"}},
+    {"id": "redirect_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "echo audit > /tmp/audit-probe-redirect.txt"}}, "expect": {"permission": "allow"}},
+    {"id": "redirect_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "echo audit > /var/tmp/audit-probe-redirect.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "rm_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm /tmp/audit-probe-missing"}}, "expect": {"permission": "allow"}},
+    {"id": "rm_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm /var/tmp/audit-probe-missing"}}, "expect": {"permission": "deny"}},
+    {"id": "rm_rf_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm -rf /tmp/x"}}, "expect": {"permission": "allow"}},
+    {"id": "rm_rf_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "rm -rf /var/tmp/x"}}, "expect": {"permission": "deny"}},
     {"id": "rm_inside_repos_ask", "payload": {"hook_event_name": "beforeShellExecution", "command": "rm /repos/app/foo"}, "expect": {"permission": "ask"}},
-    {"id": "delete_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Delete", "tool_input": {"path": "/tmp/audit-probe-delete.txt"}}, "expect": {"permission": "deny"}},
+    {"id": "delete_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Delete", "tool_input": {"path": "/tmp/audit-probe-delete.txt"}}, "expect": {"permission": "allow"}},
+    {"id": "delete_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Delete", "tool_input": {"path": "/var/tmp/audit-probe-delete.txt"}}, "expect": {"permission": "deny"}},
     {"id": "delete_inside_repos", "payload": {"hook_event_name": "preToolUse", "tool_name": "Delete", "tool_input": {"path": "/repos/app/foo"}}, "expect": {"permission": "deny"}},
     {"id": "cat_proc_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "cat /proc/self/environ"}}, "expect": {"permission": "deny"}},
     {"id": "bare_set", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "set"}}, "expect": {"permission": "deny"}},
     {"id": "set_options", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "set -euo pipefail"}}, "expect": {"permission": "allow"}},
     {"id": "node_env_keys", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": 'node -e "console.log(Object.keys(process.env))"'}}, "expect": {"permission": "deny"}},
     {"id": "echo_home", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "echo $HOME"}}, "expect": {"permission": "allow"}},
-    {"id": "python_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/tmp/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
-    {"id": "node_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync('/tmp/x','a')\""}}, "expect": {"permission": "deny"}},
-    {"id": "php_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents('/tmp/x','a');\""}}, "expect": {"permission": "deny"}},
-    {"id": "python_os_remove_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; os.remove('/tmp/x')\""}}, "expect": {"permission": "deny"}},
+    {"id": "python_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/tmp/x','w').write('a')\""}}, "expect": {"permission": "allow"}},
+    {"id": "python_write_vartmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/var/tmp/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "node_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync('/tmp/x','a')\""}}, "expect": {"permission": "allow"}},
+    {"id": "php_write_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents('/tmp/x','a');\""}}, "expect": {"permission": "allow"}},
+    {"id": "python_os_remove_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; os.remove('/tmp/x')\""}}, "expect": {"permission": "allow"}},
+    {"id": "python_os_remove_outside", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; os.remove('/var/tmp/x')\""}}, "expect": {"permission": "deny"}},
     {"id": "python_read_tmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"print(open('/tmp/x').read())\""}}, "expect": {"permission": "allow"}},
     {"id": "read_git_credentials", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/home/agent/.git-credentials"}}, "expect": {"permission": "deny"}},
     {"id": "read_home_npmrc", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/home/agent/.npmrc"}}, "expect": {"permission": "deny"}},
     {"id": "read_repos_npmrc", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/repos/app/.npmrc"}}, "expect": {"permission": "allow"}},
     {"id": "write_inside_repos", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": {"path": "/repos/app/foo.py"}}, "expect": {"permission": "allow"}},
-    {"id": "target_file_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": json.dumps({"target_file": "/tmp/audit-probe-target-file.txt"})}, "expect": {"permission": "deny"}},
+    {"id": "target_file_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": json.dumps({"target_file": "/tmp/audit-probe-target-file.txt"})}, "expect": {"permission": "allow"}},
+    {"id": "target_file_json_vartmp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Write", "tool_input": json.dumps({"target_file": "/var/tmp/audit-probe-target-file.txt"})}, "expect": {"permission": "deny"}},
     {"id": "read_env_tool_input", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "tool_input": {"path": "/repos/app/.env"}}, "expect": {"permission": "deny"}},
     {"id": "read_env_file_path", "payload": {"hook_event_name": "preToolUse", "tool_name": "Read", "file_path": "/repos/app/.env", "tool_input": {}}, "expect": {"permission": "deny"}},
     {"id": "read_env_uri", "payload": {"hook_event_name": "beforeReadFile", "file_path": "file:///repos/app/.env"}, "expect": {"permission": "deny"}},
@@ -120,10 +133,11 @@ GUARD_MAIN_SCENARIOS = [
     {"id": "split_hooks_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/.cursor/'+'hoo'+'ks.json')\""}}, "expect": {"permission": "deny"}},
     {"id": "split_security_json", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/.cursor/'+'cata'+'combs-security.json')\""}}, "expect": {"permission": "deny"}},
     {"id": "split_proc_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/proc/self/'+'envir'+'on')\""}}, "expect": {"permission": "deny"}},
-    {"id": "chr_python_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(chr(47)+'t'+'mp'+'/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
-    {"id": "chr_node_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync(String.fromCharCode(47)+'tmp/x','a')\""}}, "expect": {"permission": "deny"}},
-    {"id": "chr_php_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents(chr(47).'tmp/x','a');\""}}, "expect": {"permission": "deny"}},
-    {"id": "tempfile_mkstemp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import tempfile; tempfile.mkstemp()\""}}, "expect": {"permission": "deny"}},
+    {"id": "chr_python_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(chr(47)+'t'+'mp'+'/x','w').write('a')\""}}, "expect": {"permission": "allow"}},
+    {"id": "chr_node_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync(String.fromCharCode(47)+'tmp/x','a')\""}}, "expect": {"permission": "allow"}},
+    {"id": "chr_php_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents(chr(47).'tmp/x','a');\""}}, "expect": {"permission": "allow"}},
+    {"id": "tempfile_mkstemp", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import tempfile; tempfile.mkstemp()\""}}, "expect": {"permission": "allow"}},
+    {"id": "tempfile_dir_home", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import tempfile; tempfile.mkstemp(dir='/home/agent')\""}}, "expect": {"permission": "deny"}},
     {"id": "os_remove_inside_deferred", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; os.remove('/repos/app/foo')\""}}, "expect": {"permission": "allow"}},
     {"id": "awk_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "awk 'BEGIN { print ENVIRON[\"HOME\"] }'"}}, "expect": {"permission": "deny"}},
     {"id": "php_server_count", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r 'echo count($_SERVER);'"}}, "expect": {"permission": "deny"}},
@@ -138,10 +152,11 @@ GUARD_MAIN_SCENARIOS = [
     {"id": "hex_proc_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(bytes.fromhex('2f70726f632f73656c662f656e7669726f6e'))\""}}, "expect": {"permission": "deny"}},
     {"id": "hex_getattr_environ", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"import os; getattr(os, bytes.fromhex('656e7669726f6e'))\""}}, "expect": {"permission": "deny"}},
     {"id": "hex_buffer_process_env", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"console.log(process[Buffer.from('656e76','hex')])\""}}, "expect": {"permission": "deny"}},
-    {"id": "hex_tmp_python", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(bytes.fromhex('2f746d70')+'/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
-    {"id": "hex_tmp_node", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync(Buffer.from('2f746d70','hex')+'/x','a')\""}}, "expect": {"permission": "deny"}},
-    {"id": "hex_tmp_php", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents(hex2bin('2f746d702f78'),'a');\""}}, "expect": {"permission": "deny"}},
-    {"id": "b64_tmp_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(base64.b64decode('L3RtcC94'),'w').write('a')\""}}, "expect": {"permission": "deny"}},
+    {"id": "hex_tmp_python", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(bytes.fromhex('2f746d70')+'/x','w').write('a')\""}}, "expect": {"permission": "allow"}},
+    {"id": "hex_tmp_node", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "node -e \"require('fs').writeFileSync(Buffer.from('2f746d70','hex')+'/x','a')\""}}, "expect": {"permission": "allow"}},
+    {"id": "hex_tmp_php", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "php -r \"file_put_contents(hex2bin('2f746d702f78'),'a');\""}}, "expect": {"permission": "allow"}},
+    {"id": "b64_tmp_write", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(base64.b64decode('L3RtcC94'),'w').write('a')\""}}, "expect": {"permission": "allow"}},
+    {"id": "hex_vartmp_python", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(bytes.fromhex('2f7661722f746d70')+'/x','w').write('a')\""}}, "expect": {"permission": "deny"}},
     {"id": "b64_env_file", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open(base64.b64decode('LmVudg=='))\""}}, "expect": {"permission": "deny"}},
     {"id": "chr_dot_ssh", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "python3 -c \"open('/home/agent/'+chr(46)+'ssh/known_hosts')\""}}, "expect": {"permission": "deny", "message_contains": "ssh"}},
     {"id": "awk_environ_iterate", "payload": {"hook_event_name": "preToolUse", "tool_name": "Shell", "tool_input": {"command": "awk 'BEGIN{c=0; for (k in ENVIRON) c++'"}}, "expect": {"permission": "deny"}},
@@ -154,37 +169,37 @@ AUDIT6_ENV_SCENARIOS = [
     {
         "id": "chr46_env_prefix",
         "command": "python3 -c \"open('/repos/app/'+chr(46)+'env')\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
     },
     {
         "id": "hex_env_prefix",
         "command": "python3 -c \"open('/repos/app/'+bytes.fromhex('2e656e76'))\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
     },
     {
         "id": "b64_env_prefix",
         "command": "python3 -c \"open('/repos/app/'+base64.b64decode('LmVudg=='))\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
     },
     {
         "id": "join_chr_list",
         "command": "python3 -c \"open(''.join(chr(c) for c in [46,101,110,118]))\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
     },
     {
         "id": "reverse_slice_env",
         "command": "python3 -c \"open('vne.'[::-1])\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
     },
     {
         "id": "from_char_code_env",
         "command": "node -e \"require('fs').readFileSync(String.fromCharCode(46,101,110,118))\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
     },
     {
         "id": "multiline_python_env",
         "command": "python3 -c \"\nopen('/repos/app/.env')\n\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
     },
     {
         "id": "env_example_shell_allowed",
@@ -202,62 +217,62 @@ AUDIT7_ARGV_ALIASES = [
     {
         "id": "hex_getattr_environ",
         "command": "python3 -c \"import os; getattr(os, bytes.fromhex('656e7669726f6e'))\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "from_os_import_environ",
         "command": "python3 -c \"from os import environ\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "posix_environ",
         "command": "python3 -c \"import posix; posix.environ\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "from_posix_import_environ",
         "command": "python3 -c \"from posix import environ\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "import_os_as_o",
         "command": "python3 -c \"import os as o; o.environ\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "os_dict_environ",
         "command": "python3 -c \"import os; os.__dict__['environ']\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "vars_os_environ",
         "command": "python3 -c \"import os; vars(os)['environ']\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "importlib_os_environ",
         "command": "python3 -c \"import importlib; importlib.import_module('os').environ\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "reverse_getattribute",
         "command": "python3 -c \"import os; os.__getattribute__('norivne'[::-1])\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "reverse_dict_get",
         "command": "python3 -c \"import os; os.__dict__.get('norivne'[::-1])\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "object_getattribute",
         "command": "python3 -c \"import os; object.__getattribute__(os, 'norivne'[::-1])\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
     {
         "id": "codecs_decode_getattr",
         "command": "python3 -c \"import os,codecs; getattr(os, codecs.decode('656e7669726f6e', 'hex'))\"",
-        "expect": {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+        "expect": {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
     },
 ]
 
@@ -322,6 +337,60 @@ def _run_hook_subprocess(mode: str, *, path_prefix: str | None = None) -> subpro
         env=env,
         check=False,
     )
+
+
+class TestHooksEnabledKillSwitch(unittest.TestCase):
+    def test_hooks_enabled_when_key_missing_or_true(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "catacombs-security.json").write_text(
+                json.dumps({"version": 1, "active_profile": "medium", "overrides": {}}),
+                encoding="utf-8",
+            )
+            self.assertTrue(hooks_enabled(root))
+            (root / "catacombs-security.json").write_text(
+                json.dumps({"version": 1, "enabled": True, "active_profile": "medium"}),
+                encoding="utf-8",
+            )
+            self.assertTrue(hooks_enabled(root))
+
+    def test_hooks_enabled_false_only_for_boolean_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "catacombs-security.json").write_text(
+                json.dumps({"version": 1, "enabled": False, "active_profile": "medium"}),
+                encoding="utf-8",
+            )
+            self.assertFalse(hooks_enabled(root))
+
+    def test_guard_main_allow_when_hooks_disabled(self):
+        with patch("catacombs_guard.hooks_enabled", return_value=False):
+            result = _run_guard(
+                {"hook": "beforeShellExecution", "command": "cat .env"},
+            )
+        self.assertEqual(result, {"permission": "allow"})
+
+    def test_guard_main_enforces_when_hooks_enabled(self):
+        with patch("catacombs_guard.hooks_enabled", return_value=True):
+            result = _run_guard(
+                {
+                    "hook": "beforeReadFile",
+                    "file_path": "/repos/app/.env",
+                    "content": "DB_PASSWORD=x",
+                },
+            )
+        self.assertEqual(result["permission"], "deny")
+
+    def test_audit_main_empty_json_when_hooks_disabled(self):
+        with patch("catacombs_guard.hooks_enabled", return_value=False):
+            with patch(
+                "sys.stdin",
+                io.StringIO(json.dumps({"hook": "postToolUse", "output": "API_KEY=1"})),
+            ):
+                with patch("sys.stdout", new_callable=io.StringIO) as out:
+                    code = audit_main()
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue()), {})
 
 
 @unittest.skipIf(SENTINEL.exists(), "sentinel present (container image)")
@@ -403,85 +472,91 @@ class TestAudit7HelperScripts(unittest.TestCase):
                 "policy_open",
                 "probe_policy.py",
                 "open('/home/agent/.cursor/catacombs-security.json')",
-                {"permission": "deny", "category": "guard_policy"},
+                {"permission": "ask", "category": "guard_policy"},
             ),
             (
                 "ssh_known_hosts",
                 "probe_ssh_hosts.py",
                 "open('/home/agent/.ssh/known_hosts')",
-                {"permission": "deny", "category": "ssh_dir"},
+                {"permission": "ask", "category": "ssh_dir"},
             ),
             (
                 "ssh_id_rsa",
                 "probe_ssh_key.py",
                 "open('/home/agent/.ssh/id_rsa')",
-                {"permission": "deny", "category": "ssh_dir"},
+                {"permission": "ask", "category": "ssh_dir"},
             ),
             (
                 "ssh_config",
                 "probe_ssh_cfg.py",
                 "open('/home/agent/.ssh/config')",
-                {"permission": "deny", "category": "ssh_dir"},
+                {"permission": "ask", "category": "ssh_dir"},
             ),
             (
                 "repos_dotvars",
                 "probe_dotvars.py",
                 "open('/repos/site-remake/.env')",
-                {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+                {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
             ),
             (
-                "nested_dotvars",
-                "probe_nested.py",
-                "open('/repos/app/nested/.env')",
-                {"permission": "deny", "category": "secret_values", "subtype": "env_file"},
+                "infra_dotvars",
+                "probe_infra.py",
+                "open('/repos/app/infra/.env')",
+                {"permission": "ask", "category": "secret_values", "subtype": "env_file"},
             ),
             (
                 "from_os_keys",
                 "probe_keys.py",
                 "from os import environ\nprint(list(environ.keys()))",
-                {"permission": "deny", "category": "secret_values", "subtype": "env_dump"},
+                {"permission": "ask", "category": "secret_values", "subtype": "env_dump"},
             ),
             (
                 "hooks_json",
                 "probe_hooks.py",
                 "open('/home/agent/.cursor/hooks.json')",
-                {"permission": "deny", "category": "guard_policy"},
+                {"permission": "ask", "category": "guard_policy"},
             ),
             (
                 "listdir_hooks",
                 "probe_listdir.py",
                 "import os\nos.listdir('/home/agent/.cursor/hooks')",
-                {"permission": "deny", "category": "guard_policy"},
+                {"permission": "ask", "category": "guard_policy"},
             ),
             (
                 "guard_source",
                 "probe_guard_src.py",
                 "open('/home/agent/.cursor/hooks/catacombs_guard.py')",
-                {"permission": "deny", "category": "guard_policy"},
+                {"permission": "ask", "category": "guard_policy"},
             ),
             (
                 "write_tmp_python",
                 "probe_write_py.py",
                 "from pathlib import Path\nPath('/tmp/audit7_probe_py.txt').write_text('x')",
-                {"permission": "deny", "category": "file_write_outside_repos"},
+                {"permission": "allow"},
+            ),
+            (
+                "write_vartmp_python",
+                "probe_write_vartmp_py.py",
+                "from pathlib import Path\nPath('/var/tmp/audit7_probe_py.txt').write_text('x')",
+                {"permission": "ask", "category": "file_write_outside_repos"},
             ),
             (
                 "write_tmp_node",
                 "probe_write_js.js",
                 "require('fs').writeFileSync('/tmp/audit7_probe_js.txt','x')",
-                {"permission": "deny", "category": "file_write_outside_repos"},
+                {"permission": "allow"},
             ),
             (
                 "write_tmp_php",
                 "probe_write_php.php",
                 "file_put_contents('/tmp/audit7_probe_php.txt','x');",
-                {"permission": "deny", "category": "file_write_outside_repos"},
+                {"permission": "allow"},
             ),
             (
                 "netrc_credential",
                 "probe_netrc.py",
                 "open('/home/agent/.netrc')",
-                {"permission": "deny", "category": "credential_access"},
+                {"permission": "ask", "category": "credential_access"},
             ),
         ]
         with tempfile.TemporaryDirectory() as tmp:
@@ -510,7 +585,7 @@ class TestAudit7HelperScripts(unittest.TestCase):
             )
             cmd = f"python3 -c \"exec(open('{helper}').read())\""
             result = _evaluate_shell(cmd)
-            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.permission, "ask")
             self.assertEqual(result.category, "guard_policy")
 
     def test_audit7_symlink_helper_resolved_path(self):
@@ -521,7 +596,7 @@ class TestAudit7HelperScripts(unittest.TestCase):
             link = tmp_path / "lnk_probe.py"
             link.symlink_to(dotvars)
             result = _evaluate_shell(f"python3 {link}")
-            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.permission, "ask")
             self.assertEqual(result.category, "secret_values")
             self.assertEqual(result.subtype, "env_file")
 
@@ -534,7 +609,7 @@ class TestAudit7HelperScripts(unittest.TestCase):
                 "require('fs').readFileSync('/repos/site-remake/.env')",
             )
             result = _evaluate_shell(f"node {helper}")
-            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.permission, "ask")
             self.assertEqual(result.category, "secret_values")
             self.assertEqual(result.subtype, "env_file")
 
@@ -547,7 +622,7 @@ class TestAudit7HelperScripts(unittest.TestCase):
                 "cat '/repos/site-remake/.env'",
             )
             result = _evaluate_shell(f"bash {helper}")
-            self.assertEqual(result.permission, "deny")
+            self.assertEqual(result.permission, "ask")
             self.assertEqual(result.category, "secret_values")
             self.assertEqual(result.subtype, "env_file")
 
@@ -789,7 +864,10 @@ class TestGuardPolicy(unittest.TestCase):
                             overrides={},
                             config_root=CONFIG_ROOT,
                         )
-                    self.assertEqual(result.permission, "deny")
+                    shell_on_low = (
+                        profile == "low" and event.get("hook") == "beforeShellExecution"
+                    )
+                    self.assertEqual(result.permission, "ask" if shell_on_low else "deny")
                     self.assertEqual(result.category, "guard_policy")
                     self.assertIn("user_message", result.to_json())
 
@@ -854,7 +932,7 @@ class TestGuardPolicy(unittest.TestCase):
                     result = evaluate(
                         {
                             "tool_name": "Write",
-                            "file_path": "/tmp/outside.txt",
+                            "file_path": "/var/tmp/outside.txt",
                             "hook": "preToolUse",
                         },
                         profile_id=profile,
@@ -934,7 +1012,7 @@ class TestSshDir(unittest.TestCase):
                 overrides={},
                 config_root=CONFIG_ROOT,
             )
-        self.assertEqual(result.permission, "deny")
+        self.assertEqual(result.permission, "ask")
         self.assertEqual(result.category, "ssh_dir")
         self.assertTrue(result.notify)
 

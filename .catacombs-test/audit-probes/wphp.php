@@ -1,3 +1,3 @@
 <?php
-file_put_contents("/tmp/catacombs-audit-wphp.txt", "x");
+file_put_contents("/var/tmp/catacombs-audit-wphp.txt", "x");
 echo "wrote";

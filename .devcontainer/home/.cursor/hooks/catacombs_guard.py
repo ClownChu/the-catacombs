@@ -23,13 +23,13 @@ from guard_secrets import (
 )
 from guard_shell import (
     _INTERPRETER_WRITE_API,
-    _TEMPFILE_WRITE_API,
     command_accesses_ssh,
     command_ssh_pub_read_only,
     interpreter_write_paths,
     READ_SHELL_CMDS,
     shell_write_destinations,
     SHELL_WRITE_CMD,
+    tempfile_write_path,
 )
 
 DEFAULT_PROFILE = "medium"
@@ -120,6 +120,12 @@ def load_security_config(config_root: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"version": 1, "active_profile": DEFAULT_PROFILE, "overrides": {}}
     return _load_json(path)
+
+
+def hooks_enabled(config_root: Optional[Path] = None) -> bool:
+    root = config_root or config_root_default()
+    security = load_security_config(root)
+    return security.get("enabled") is not False
 
 
 def load_categories(config_root: Path) -> dict[str, Any]:
@@ -538,13 +544,18 @@ def _path_is_write_outside(
     *,
     prefix: str,
     allow_patterns: list[str],
+    allow_prefixes: list[str] | None = None,
 ) -> bool:
     if not path:
         return False
-    normalized = normalize_path(path)
+    normalized = normalize_path(path).replace("\\", "/")
+    for allow in allow_prefixes or []:
+        root = allow.replace("\\", "/").rstrip("/")
+        if normalized == root or normalized.startswith(root + "/"):
+            return False
     if allow_patterns and path_matches_any(normalized, allow_patterns):
         return False
-    return not normalized.replace("\\", "/").startswith(prefix)
+    return not normalized.startswith(prefix)
 
 
 def match_prefix(
@@ -555,18 +566,24 @@ def match_prefix(
     if direction == "write":
         prefix = cat_def.get("write_path_exclude_prefix", "/repos/")
         allow_patterns = cat_def.get("write_path_allow_patterns", [])
+        allow_prefixes = cat_def.get("write_path_allow_prefixes", [])
         write_tools = cat_def.get("write_tools", ["Write", "StrReplace", "Delete"])
+        outside_kwargs = {
+            "prefix": prefix,
+            "allow_patterns": allow_patterns,
+            "allow_prefixes": allow_prefixes,
+        }
 
         if hook == "beforeShellExecution" and "command" in event:
             command = str(event.get("command") or "")
-            if _TEMPFILE_WRITE_API.search(command):
-                return ("write_outside", "tempfile default /tmp")
+            destinations = list(shell_write_destinations(command))
+            tempfile_path = tempfile_write_path(command)
+            if tempfile_path:
+                destinations.append(tempfile_path)
             outside = [
                 path
-                for path in shell_write_destinations(command)
-                if _path_is_write_outside(
-                    path, prefix=prefix, allow_patterns=allow_patterns
-                )
+                for path in destinations
+                if _path_is_write_outside(path, **outside_kwargs)
             ]
             if outside:
                 return ("write_outside", outside[0])
@@ -578,9 +595,7 @@ def match_prefix(
         if tool not in write_tools:
             return None
         path = _file_path(event)
-        if path and _path_is_write_outside(
-            path, prefix=prefix, allow_patterns=allow_patterns
-        ):
+        if path and _path_is_write_outside(path, **outside_kwargs):
             return ("write_outside", path)
         return None
 
@@ -983,6 +998,10 @@ def evaluate_audit(
 
 
 def guard_main() -> int:
+    if not hooks_enabled():
+        print(json.dumps({"permission": "allow"}))
+        return 0
+
     try:
         raw = sys.stdin.read()
         event = json.loads(raw) if raw.strip() else {}
@@ -1018,6 +1037,10 @@ def guard_main() -> int:
 
 
 def audit_main() -> int:
+    if not hooks_enabled():
+        print("{}")
+        return 0
+
     try:
         raw = sys.stdin.read()
         event = json.loads(raw) if raw.strip() else {}
