@@ -55,6 +55,7 @@ _TEMPFILE_WRITE_API = re.compile(
     r"\b(?:tempfile\.(?:mkstemp|NamedTemporaryFile|TemporaryDirectory)|mkstemp\s*\()",
     re.IGNORECASE,
 )
+_TEMPFILE_DIR_ARG = re.compile(r"\bdir\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
 _DEV_SINKS = frozenset({"/dev/null", "/dev/stdout", "/dev/stderr"})
 SSH_PATH_RE = re.compile(r"(?:^|[/\s'\"~])\.ssh(?:/|\b)")
 _SOURCE_SCRIPT_SUFFIXES = frozenset(
@@ -115,6 +116,14 @@ def _path_inside_url(command: str, start: int) -> bool:
     if start > 0 and command[start - 1] == ":":
         return True
     return start >= 3 and command[start - 3 : start] == "://"
+
+
+def tempfile_write_path(command: str) -> Optional[str]:
+    """Default tempfile location is /tmp; honor an explicit dir= when present."""
+    if not _TEMPFILE_WRITE_API.search(command):
+        return None
+    match = _TEMPFILE_DIR_ARG.search(command)
+    return match.group(1) if match else "/tmp"
 
 
 def interpreter_write_paths(command: str) -> list[str]:

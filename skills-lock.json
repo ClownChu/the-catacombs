@@ -12,6 +12,12 @@
       "sourceType": "github",
       "skillPath": "skills/performance-optimizer/SKILL.md",
       "computedHash": "3f9cc4b078de918e25ed258ca17eb526dfd4f0392f00553ed0c85fdb187b1682"
+    },
+    "playwright-skill": {
+      "source": "lackeyjb/playwright-skill",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-skill/SKILL.md",
+      "computedHash": "3a284d9eee004bcbcf17f58a08550146021d43efb02c9f411d65cacca889fb25"
     }
   }
 }

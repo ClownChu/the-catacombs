@@ -1,1 +1,1 @@
-echo x > /tmp/catacombs-audit-wsh.txt
+echo x > /var/tmp/catacombs-audit-wsh.txt

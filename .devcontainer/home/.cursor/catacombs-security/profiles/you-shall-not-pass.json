@@ -1,7 +1,7 @@
 {
   "id": "you-shall-not-pass",
   "label": "You Shall Not Pass",
-  "description": "Maximum hook enforcement: blocks network, subagents, agent config, reads outside /repos, symlinks, and writes outside /repos.",
+  "description": "Maximum hook enforcement: blocks network, subagents, agent config, reads outside /repos, symlinks, and writes outside /repos (except /tmp).",
   "categories": {
     "guard_policy": { "enabled": true, "action": "block", "notify": true },
     "ssh_dir": { "enabled": true, "action": "block", "notify": true },

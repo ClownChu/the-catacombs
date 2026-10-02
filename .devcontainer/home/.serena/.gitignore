@@ -1,0 +1,7 @@
+*
+!*/
+!.gitignore
+!**/.gitkeep
+!contexts/*
+!modes/*
+!serena_config.yml

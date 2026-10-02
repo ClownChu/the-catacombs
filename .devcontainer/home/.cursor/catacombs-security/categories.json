@@ -233,6 +233,7 @@
     "direction": "write",
     "intention": "write outside workspace",
     "write_path_exclude_prefix": "/repos/",
+    "write_path_allow_prefixes": ["/tmp"],
     "write_path_allow_patterns": [
       "**/.cursor/agents/**",
       "**/.cursor/plugins/**",

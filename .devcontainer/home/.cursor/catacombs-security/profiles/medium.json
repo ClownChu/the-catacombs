@@ -1,7 +1,7 @@
 {
   "id": "medium",
   "label": "Medium",
-  "description": "Ask before classified shell and MCP actions; hard-block guard policy, credentials, secrets, agent config, container escape, and writes outside /repos.",
+  "description": "Ask before classified shell and MCP actions; hard-block guard policy, credentials, secrets, agent config, container escape, and writes outside /repos (except /tmp).",
   "categories": {
     "guard_policy": { "enabled": true, "action": "block", "notify": true },
     "ssh_dir": { "enabled": true, "action": "block", "notify": true },

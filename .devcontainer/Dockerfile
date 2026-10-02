@@ -97,6 +97,13 @@ RUN printf 'catacombs\n' > /etc/catacombs-container \
     && chmod 0444 /etc/catacombs-container \
     && chown root:root /etc/catacombs-container
 
+# Parent of the Serena file mounts. Docker creates a missing parent as root, and
+# gVisor nosuid makes sudo unable to chown it later.
+RUN mkdir -p /home/$USERNAME/.serena \
+    && chown -R $USERNAME:$USERNAME /home/$USERNAME \
+    && chmod 755 /home/$USERNAME \
+    && chmod -R 755 /home/$USERNAME
+
 # Set default user
 USER $USERNAME
 
